@@ -1,0 +1,4 @@
+/bin/
+/.cache/
+/entrypoint
+/test_targets.txt
