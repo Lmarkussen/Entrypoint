@@ -281,6 +281,12 @@ func serviceForPort(port int, proto string) string {
 		return "ldaps"
 	case 1433:
 		return "mssql"
+	case 873:
+		return "rsync"
+	case 2049:
+		return "nfs"
+	case 6379:
+		return "redis"
 	case 139, 445:
 		return "smb"
 	default:

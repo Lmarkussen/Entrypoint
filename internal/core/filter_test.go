@@ -123,3 +123,63 @@ func TestSelectModulesSupportsMSSQLFilter(t *testing.T) {
 		t.Fatalf("expected only mssql module, got %+v", mods)
 	}
 }
+
+func TestSelectModulesSupportsRedisFilter(t *testing.T) {
+	targets := []Target{
+		{Host: "10.10.10.13", Port: 6379, Proto: "tcp", Service: "redis"},
+	}
+	registry := map[string]Module{
+		"redis": fakeModule{name: "redis", anon: true, creds: true},
+	}
+
+	mods, skipped, err := SelectModules(targets, registry, ParseNameSet("redis"), nil, Options{})
+	if err != nil {
+		t.Fatalf("SelectModules returned error: %v", err)
+	}
+	if len(skipped) != 0 {
+		t.Fatalf("did not expect skipped targets, got %+v", skipped)
+	}
+	if len(mods) != 1 || mods[0].Name() != "redis" {
+		t.Fatalf("expected only redis module, got %+v", mods)
+	}
+}
+
+func TestSelectModulesSupportsNFSFilter(t *testing.T) {
+	targets := []Target{
+		{Host: "10.10.10.14", Port: 2049, Proto: "tcp", Service: "nfs"},
+	}
+	registry := map[string]Module{
+		"nfs": fakeModule{name: "nfs", anon: true, creds: false},
+	}
+
+	mods, skipped, err := SelectModules(targets, registry, ParseNameSet("nfs"), nil, Options{})
+	if err != nil {
+		t.Fatalf("SelectModules returned error: %v", err)
+	}
+	if len(skipped) != 0 {
+		t.Fatalf("did not expect skipped targets, got %+v", skipped)
+	}
+	if len(mods) != 1 || mods[0].Name() != "nfs" {
+		t.Fatalf("expected only nfs module, got %+v", mods)
+	}
+}
+
+func TestSelectModulesSupportsRsyncFilter(t *testing.T) {
+	targets := []Target{
+		{Host: "10.10.10.15", Port: 873, Proto: "tcp", Service: "rsync"},
+	}
+	registry := map[string]Module{
+		"rsync": fakeModule{name: "rsync", anon: true, creds: false},
+	}
+
+	mods, skipped, err := SelectModules(targets, registry, ParseNameSet("rsync"), nil, Options{})
+	if err != nil {
+		t.Fatalf("SelectModules returned error: %v", err)
+	}
+	if len(skipped) != 0 {
+		t.Fatalf("did not expect skipped targets, got %+v", skipped)
+	}
+	if len(mods) != 1 || mods[0].Name() != "rsync" {
+		t.Fatalf("expected only rsync module, got %+v", mods)
+	}
+}

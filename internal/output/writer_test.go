@@ -3,9 +3,11 @@ package output
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"entrypoint/internal/core"
+	"entrypoint/internal/ui"
 )
 
 func TestWriteLineWritesPlainText(t *testing.T) {
@@ -76,6 +78,158 @@ func TestManagerWritesOnlyValidFindingsToSuccessLog(t *testing.T) {
 	}
 	if containsANSI(got) {
 		t.Fatalf("success log should not contain ANSI escapes: %q", got)
+	}
+}
+
+func TestManagerWritesRedisValidFindingOnlyToSuccessLog(t *testing.T) {
+	dir := t.TempDir()
+	manager, err := NewManager(filepath.Join(dir, "entrypoint.log"), filepath.Join(dir, "valid.log"))
+	if err != nil {
+		t.Fatalf("NewManager returned error: %v", err)
+	}
+	defer manager.Close()
+
+	if err := manager.WriteSuccessFinding(core.ValidFinding(
+		core.Target{Host: "10.10.10.30", Port: 6379, Service: "redis"},
+		"anonymous",
+		"",
+		"redis_version=7.0.15; role=master",
+		"no-auth",
+	)); err != nil {
+		t.Fatalf("WriteSuccessFinding returned error: %v", err)
+	}
+	if err := manager.WriteSuccessFinding(core.InvalidFinding(
+		core.Target{Host: "10.10.10.31", Port: 6379, Service: "redis"},
+		"anonymous",
+		"",
+		"",
+		"no-auth denied",
+	)); err != nil {
+		t.Fatalf("WriteSuccessFinding returned error: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(dir, "valid.log"))
+	if err != nil {
+		t.Fatalf("ReadFile returned error: %v", err)
+	}
+	got := string(data)
+	if got != "VALID [A] redis 10.10.10.30:6379 no-auth; redis_version=7.0.15; role=master\n" {
+		t.Fatalf("unexpected success log contents: %q", got)
+	}
+}
+
+func TestManagerWritesNFSValidFindingOnlyToSuccessLog(t *testing.T) {
+	dir := t.TempDir()
+	manager, err := NewManager(filepath.Join(dir, "entrypoint.log"), filepath.Join(dir, "valid.log"))
+	if err != nil {
+		t.Fatalf("NewManager returned error: %v", err)
+	}
+	defer manager.Close()
+
+	if err := manager.WriteSuccessFinding(core.ValidFinding(
+		core.Target{Host: "10.10.10.40", Port: 2049, Service: "nfs"},
+		"anonymous",
+		"",
+		"exports=/srv/share,/backup",
+		"access appears world-readable",
+	)); err != nil {
+		t.Fatalf("WriteSuccessFinding returned error: %v", err)
+	}
+	if err := manager.WriteSuccessFinding(core.ErrorFinding(
+		core.Target{Host: "10.10.10.41", Port: 2049, Service: "nfs"},
+		"anonymous",
+		"",
+		"",
+		"timeout/no response",
+	)); err != nil {
+		t.Fatalf("WriteSuccessFinding returned error: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(dir, "valid.log"))
+	if err != nil {
+		t.Fatalf("ReadFile returned error: %v", err)
+	}
+	got := string(data)
+	if got != "VALID [A] nfs 10.10.10.40:2049 access appears world-readable; exports=/srv/share,/backup\n" {
+		t.Fatalf("unexpected success log contents: %q", got)
+	}
+	if containsANSI(got) {
+		t.Fatalf("success log should not contain ANSI escapes: %q", got)
+	}
+}
+
+func TestManagerWritesRsyncValidFindingOnlyToSuccessLog(t *testing.T) {
+	dir := t.TempDir()
+	manager, err := NewManager(filepath.Join(dir, "entrypoint.log"), filepath.Join(dir, "valid.log"))
+	if err != nil {
+		t.Fatalf("NewManager returned error: %v", err)
+	}
+	defer manager.Close()
+
+	if err := manager.WriteSuccessFinding(core.ValidFinding(
+		core.Target{Host: "10.10.10.50", Port: 873, Service: "rsync"},
+		"anonymous",
+		"",
+		"modules=backup,home,www",
+		"",
+	)); err != nil {
+		t.Fatalf("WriteSuccessFinding returned error: %v", err)
+	}
+	if err := manager.WriteSuccessFinding(core.InvalidFinding(
+		core.Target{Host: "10.10.10.51", Port: 873, Service: "rsync"},
+		"anonymous",
+		"",
+		"",
+		"no modules visible",
+	)); err != nil {
+		t.Fatalf("WriteSuccessFinding returned error: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(dir, "valid.log"))
+	if err != nil {
+		t.Fatalf("ReadFile returned error: %v", err)
+	}
+	got := string(data)
+	if got != "VALID [A] rsync 10.10.10.50:873 modules=backup,home,www\n" {
+		t.Fatalf("unexpected success log contents: %q", got)
+	}
+	if containsANSI(got) {
+		t.Fatalf("success log should not contain ANSI escapes: %q", got)
+	}
+}
+
+func TestManagerWritesPriorityBlockPlainTextToOutfile(t *testing.T) {
+	dir := t.TempDir()
+	manager, err := NewManager(filepath.Join(dir, "entrypoint.log"), "")
+	if err != nil {
+		t.Fatalf("NewManager returned error: %v", err)
+	}
+	defer manager.Close()
+
+	block := ui.PriorityTargetsBlock([]core.Finding{
+		core.ValidFinding(
+			core.Target{Host: "10.10.10.60", Port: 22, Service: "ssh"},
+			"credential",
+			"test",
+			"whoami => test",
+			"",
+		),
+	}, false)
+
+	if err := manager.WriteFull(block); err != nil {
+		t.Fatalf("WriteFull returned error: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(dir, "entrypoint.log"))
+	if err != nil {
+		t.Fatalf("ReadFile returned error: %v", err)
+	}
+	got := string(data)
+	if containsANSI(got) {
+		t.Fatalf("outfile should not contain ANSI escapes: %q", got)
+	}
+	if !strings.Contains(got, "==== PRIORITY TARGETS ====") {
+		t.Fatalf("missing priority block in outfile: %q", got)
 	}
 }
 

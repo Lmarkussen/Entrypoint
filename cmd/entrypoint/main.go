@@ -120,6 +120,7 @@ func run() error {
 	stats := core.ClassifyFindings(allFindings)
 	writeLine(ui.TotalsLine(stats, color), ui.TotalsLine(stats, false))
 	writeLine(ui.RunSummaryBlock(allFindings, color), ui.RunSummaryBlock(allFindings, false))
+	writeLine(ui.PriorityTargetsBlock(allFindings, color), ui.PriorityTargetsBlock(allFindings, false))
 	if outputErr != nil {
 		return fmt.Errorf("write outfile: %w", outputErr)
 	}

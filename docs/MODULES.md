@@ -90,6 +90,96 @@ Output behavior:
 - Credential findings keep the attempted username/domain in the finding and render `user=<name>` in terminal output.
 - Passwords are not printed in terminal output, `--outfile`, or `--log-success`.
 
+## NFS
+
+Validation rules:
+
+- `nfs` uses port `2049`.
+- NFS uses anonymous-style export enumeration in v1.
+- NFS does not use `--creds` in v1.
+- EntryPoint marks NFS valid only when export enumeration succeeds and at least one export is visible.
+- Proof is kept concise, for example `exports=/srv/share,/backup`.
+- When export access hints are present, EntryPoint adds a short note such as `access appears world-readable` or `access appears restricted`.
+
+False-positive guardrails:
+
+- TCP connect alone is never enough.
+- RPC reachability alone is never enough.
+- No visible exports means the result is not valid access.
+- Timeout, connection, RPC, and tooling failures are reported as `ERROR`.
+
+Safety limitations:
+
+- EntryPoint v1 only performs read-only export enumeration.
+- It does not mount exports, recurse through files, or perform write operations.
+- Export enumeration currently relies on `showmount` being available on the operator host.
+
+Output behavior:
+
+- NFS findings render as `[A]`.
+- Successful findings include concise export evidence.
+- Passwords are not printed because NFS does not use credential auth in v1.
+
+## rsync
+
+Validation rules:
+
+- `rsync` uses port `873`.
+- rsync uses anonymous-style module listing in v1.
+- rsync does not use `--creds` in v1.
+- EntryPoint marks rsync valid only when module listing succeeds and at least one module is visible.
+- Proof is kept concise, for example `modules=backup,home,www`.
+
+False-positive guardrails:
+
+- TCP connect alone is never enough.
+- A daemon banner alone is never enough.
+- No visible modules means the result is not valid access.
+- Timeout, connection, and protocol failures are reported as `ERROR`.
+- Explicit anonymous listing denial is reported as `INVALID`.
+
+Safety limitations:
+
+- EntryPoint v1 only performs read-only top-level module listing.
+- It does not recursively list module contents, download files, upload files, or perform writes.
+- Anonymous module listing currently relies on the `rsync` client binary being available on the operator host.
+
+Output behavior:
+
+- rsync findings render as `[A]`.
+- Successful findings include concise module evidence.
+- Passwords are not printed because rsync does not use credential auth in v1.
+
+## Redis
+
+Validation rules:
+
+- `redis` uses port `6379`.
+- Redis supports no-auth checks in v1.
+- Credential mode uses the password field from `--creds`.
+- For Redis ACL auth, EntryPoint tries `AUTH <username> <password>` when a username is present.
+- EntryPoint also tries password-only `AUTH <password>` as a fallback when a password is available.
+- EntryPoint marks Redis valid only when `PING` succeeds and `INFO` succeeds.
+- Proof is taken from concise `INFO` values such as `redis_version` and `role`.
+
+False-positive guardrails:
+
+- TCP connect alone is never enough.
+- Banner or greeting alone is never enough.
+- `PING` alone is never enough unless `INFO` also succeeds.
+- Authentication denials and `NOAUTH` responses are reported as `INVALID`; timeout, connection, and protocol failures are reported as `ERROR`.
+
+Safety limitations:
+
+- EntryPoint v1 only uses `PING`, `AUTH`, and `INFO`.
+- No `CONFIG SET`, `SAVE`, `BGSAVE`, key enumeration, or write operations are performed.
+
+Output behavior:
+
+- No-auth Redis checks render as `[A]`.
+- Credential Redis checks render as `[C]`.
+- Passwords are not printed in terminal output, `--outfile`, or `--log-success`.
+
 ## SNMP
 
 Validation rules:

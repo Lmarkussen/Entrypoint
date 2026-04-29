@@ -3,6 +3,8 @@ package ui
 import (
 	"fmt"
 	"io"
+	"net/netip"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -16,6 +18,20 @@ const (
 	red    = "\033[31m"
 	cyan   = "\033[36m"
 )
+
+const priorityEvidenceMaxLen = 120
+
+var priorityPasswordPattern = regexp.MustCompile(`(?i)(password|pass)=([^;\s]+)`)
+
+type priorityEntry struct {
+	hostPort string
+	host     string
+	port     int
+	service  string
+	auth     string
+	identity string
+	detail   string
+}
 
 func PrintSummary(w io.Writer, summary core.Summary, opts core.Options, credCount int) {
 	fmt.Fprint(w, SummaryLine(summary, opts, credCount, true))
@@ -142,6 +158,75 @@ func RunSummaryBlock(findings []core.Finding, color bool) string {
 	return builder.String()
 }
 
+func PriorityTargetsBlock(findings []core.Finding, color bool) string {
+	groups := map[string][]priorityEntry{
+		"HIGH":   {},
+		"MEDIUM": {},
+		"LOW":    {},
+	}
+
+	for _, finding := range findings {
+		if core.ClassifyFinding(finding) != "valid" {
+			continue
+		}
+		priority := findingPriority(finding.Service)
+		if priority == "" {
+			continue
+		}
+
+		groups[priority] = append(groups[priority], priorityEntry{
+			hostPort: fmt.Sprintf("%s:%d", finding.Host, finding.Port),
+			host:     finding.Host,
+			port:     finding.Port,
+			service:  finding.Service,
+			auth:     authLabel(finding),
+			identity: priorityIdentity(finding),
+			detail:   priorityDetail(finding),
+		})
+	}
+
+	hasValid := false
+	for _, entries := range groups {
+		if len(entries) > 0 {
+			hasValid = true
+			break
+		}
+	}
+
+	var builder strings.Builder
+	builder.WriteString(colorCode(color, cyan))
+	builder.WriteString("==== PRIORITY TARGETS ====\n")
+	builder.WriteString(colorCode(color, reset))
+	if !hasValid {
+		builder.WriteString("none\n")
+		return builder.String()
+	}
+
+	for _, level := range []string{"HIGH", "MEDIUM", "LOW"} {
+		entries := groups[level]
+		sort.Slice(entries, func(i, j int) bool {
+			return lessPriorityEntry(entries[i], entries[j])
+		})
+
+		builder.WriteString(level)
+		builder.WriteString(":\n")
+		for _, entry := range entries {
+			builder.WriteString(fmt.Sprintf("  %-21s %-7s [%s] %-16s %s\n",
+				entry.hostPort,
+				entry.service,
+				entry.auth,
+				entry.identity,
+				entry.detail,
+			))
+		}
+		if level != "LOW" {
+			builder.WriteByte('\n')
+		}
+	}
+
+	return builder.String()
+}
+
 func BannerText(text string, color bool) string {
 	if text == "" {
 		return ""
@@ -225,4 +310,118 @@ func summaryPrincipal(f core.Finding) string {
 	default:
 		return "<unknown>"
 	}
+}
+
+func findingPriority(service string) string {
+	switch service {
+	case "winrm", "winrm-ssl", "ssh", "telnet", "mssql":
+		return "HIGH"
+	case "smb", "ftp", "redis", "nfs", "rsync":
+		return "MEDIUM"
+	case "ldap", "ldaps", "snmp":
+		return "LOW"
+	default:
+		return ""
+	}
+}
+
+func priorityIdentity(f core.Finding) string {
+	if authLabel(f) == "C" {
+		if f.Username != "" {
+			return f.Username
+		}
+		return "<unknown>"
+	}
+
+	switch f.Service {
+	case "redis":
+		return "no-auth"
+	case "snmp":
+		if f.Username != "" {
+			return f.Username
+		}
+		if community := prefixedValue(f.Notes, "community="); community != "" {
+			return community
+		}
+		return "anonymous"
+	case "smb":
+		if f.Username != "" {
+			return f.Username
+		}
+		if f.AuthType == "null-session" || containsAnyFold(f.Notes, "guest", "null session") || containsAnyFold(f.Evidence, "guest", "null session") {
+			return "null/guest"
+		}
+		return "anonymous"
+	case "ftp", "ldap", "ldaps", "nfs", "rsync":
+		return "anonymous"
+	default:
+		if f.Username != "" && f.Username != "<anonymous>" {
+			return f.Username
+		}
+		if f.AuthType == "null-session" {
+			return "null/guest"
+		}
+		return "anonymous"
+	}
+}
+
+func priorityDetail(f core.Finding) string {
+	detail := firstNonEmpty(f.Evidence, f.Notes)
+	detail = strings.Join(strings.Fields(detail), " ")
+	detail = priorityPasswordPattern.ReplaceAllString(detail, "$1=<redacted>")
+	return truncateText(detail, priorityEvidenceMaxLen)
+}
+
+func truncateText(value string, maxLen int) string {
+	if maxLen <= 0 || len(value) <= maxLen {
+		return value
+	}
+	if maxLen <= 3 {
+		return value[:maxLen]
+	}
+	return strings.TrimSpace(value[:maxLen-3]) + "..."
+}
+
+func lessPriorityEntry(left, right priorityEntry) bool {
+	leftAddr, leftErr := netip.ParseAddr(left.host)
+	rightAddr, rightErr := netip.ParseAddr(right.host)
+	switch {
+	case leftErr == nil && rightErr == nil:
+		if leftAddr != rightAddr {
+			return leftAddr.Less(rightAddr)
+		}
+	case left.host != right.host:
+		return left.host < right.host
+	}
+
+	if left.service != right.service {
+		return left.service < right.service
+	}
+	if left.port != right.port {
+		return left.port < right.port
+	}
+	if left.identity != right.identity {
+		return left.identity < right.identity
+	}
+	return left.detail < right.detail
+}
+
+func prefixedValue(raw, prefix string) string {
+	for _, part := range strings.Split(raw, ";") {
+		part = strings.TrimSpace(part)
+		if strings.HasPrefix(strings.ToLower(part), strings.ToLower(prefix)) {
+			return strings.TrimSpace(part[len(prefix):])
+		}
+	}
+	return ""
+}
+
+func containsAnyFold(raw string, patterns ...string) bool {
+	value := strings.ToLower(raw)
+	for _, pattern := range patterns {
+		if strings.Contains(value, strings.ToLower(pattern)) {
+			return true
+		}
+	}
+	return false
 }

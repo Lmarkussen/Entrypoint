@@ -19,6 +19,9 @@ EntryPoint is built to stay low-noise and conservative:
 | `ldap` | `389` | implemented | bind plus RootDSE query |
 | `ldaps` | `636` | implemented | TLS bind plus RootDSE query |
 | `mssql` | `1433` | implemented | login plus `SELECT SYSTEM_USER, SUSER_SNAME(), DB_NAME()` |
+| `nfs` | `2049` | implemented | export enumeration with at least one visible export |
+| `rsync` | `873` | implemented | anonymous module listing with at least one visible module |
+| `redis` | `6379` | implemented | `PING` plus `INFO` |
 | `snmp` | `161/udp` | implemented | v1/v2c community plus read-only GET proof |
 | `ssh` | `22` | implemented | password auth plus `whoami`/`id`/`hostname` proof |
 | `winrm` | `5985` | implemented | auth plus `whoami` proof |
@@ -40,10 +43,14 @@ EntryPoint is built to stay low-noise and conservative:
 - Can mirror the same output to a plain-text file with `--outfile`.
 - Can write only successful findings to a plain-text file with `--log-success`.
 - Supports MSSQL login validation with a read-only proof query.
+- Supports NFS export validation through read-only export enumeration.
+- Supports rsync validation through read-only anonymous module listing.
+- Supports Redis no-auth and password validation with `PING` plus `INFO`.
 - Supports SNMP v1/v2c read-only community validation with default or custom community lists.
 - Supports WinRM over HTTP and HTTPS with `whoami` proof validation.
 - Distinguishes anonymous/null checks from credential checks in terminal output with `[A]` and `[C]`.
 - Prints a concise end-of-run summary grouped by host plus per-service counts.
+- Prints a concise priority triage block that ranks successful findings into `HIGH`, `MEDIUM`, and `LOW`.
 
 ## Safety Model
 
@@ -59,6 +66,9 @@ Module validation rules:
 - FTP requires successful login plus a post-login command like `PWD` or `SYST`.
 - LDAP and LDAPS require a successful bind plus a safe read-only RootDSE query.
 - MSSQL requires successful login plus a read-only proof query that returns `SYSTEM_USER`, `SUSER_SNAME()`, or `DB_NAME()`.
+- NFS requires successful export enumeration with at least one visible export.
+- rsync requires successful anonymous module listing with at least one visible module.
+- Redis requires a successful `PING` plus a successful read-only `INFO` query.
 - SNMP requires a successful v1/v2c read-only GET that returns `sysName.0` or `sysDescr.0`.
 - SSH requires successful password authentication plus a harmless proof command such as `whoami`, `id`, or `hostname`.
 - WinRM requires successful authentication plus a successful `whoami` command before any result is marked valid.
@@ -73,6 +83,9 @@ make build
 ./bin/entrypoint --masscan scans.txt --creds creds.txt
 ./bin/entrypoint --masscan ldap.txt --only ldap,ldaps --creds creds.txt
 ./bin/entrypoint --masscan mssql.txt --only mssql --creds creds.txt
+./bin/entrypoint --masscan nfs.txt --only nfs --anon-only
+./bin/entrypoint --masscan rsync.txt --only rsync --anon-only
+./bin/entrypoint --masscan redis.txt --only redis --anon-only
 ./bin/entrypoint --masscan masscan.txt --only snmp --anon-only
 ./bin/entrypoint --masscan scans.txt --only ssh --creds creds.txt --outfile entrypoint.log
 ./bin/entrypoint --masscan scans.txt --creds creds.txt --log-success valid.log
@@ -88,10 +101,16 @@ Supported masscan text formats include:
 open tcp 21 10.10.10.5
 open tcp 22 10.10.10.6
 open tcp 1433 10.10.10.8
+open tcp 2049 10.10.10.9
+open tcp 873 10.10.10.10
+open tcp 6379 10.10.10.11
 open udp 161 10.10.10.7
 Timestamp: 1777278727    Host: 10.150.64.67 ()    Ports: 21/open/tcp//ftp//
 Timestamp: 1777273312    Host: 10.136.15.153 ()   Ports: 23/open/tcp//telnet//
 Timestamp: 1777273600    Host: 10.138.96.27 ()    Ports: 1433/open/tcp//ms-sql-s//
+Timestamp: 1777273625    Host: 10.138.96.29 ()    Ports: 2049/open/tcp//nfs//
+Timestamp: 1777273640    Host: 10.138.96.30 ()    Ports: 873/open/tcp//rsync//
+Timestamp: 1777273650    Host: 10.138.96.28 ()    Ports: 6379/open/tcp//redis//
 Timestamp: 1777279000    Host: 10.150.64.68 ()    Ports: 161/open/udp//snmp//
 10.10.10.5:21
 ```
@@ -113,6 +132,12 @@ SNMP v1/v2c does not use `--creds`. EntryPoint uses built-in read-only community
 WinRM and WinRM over TLS use `--creds` and do not support anonymous/null validation.
 
 MSSQL uses `--creds` and does not support anonymous/null validation in v1.
+
+NFS uses anonymous-style export enumeration only in v1 and does not use `--creds`.
+
+rsync uses anonymous-style module listing only in v1 and does not use `--creds`.
+
+Redis supports no-auth checks and can also use the password field from `--creds` for `AUTH` validation.
 
 ## Output Files
 
@@ -153,6 +178,7 @@ Example output:
 [+] VALID   [A] ldap    10.10.1.10:389  anonymous bind + RootDSE query successful; defaultNamingContext=DC=corp,DC=local
 [+] VALID   [C] ldaps   10.10.1.11:636  user=CORP\test; bind + RootDSE query successful; defaultNamingContext=DC=corp,DC=local
 [+] VALID   [C] mssql   10.10.1.12:1433 user=sa; system_user=sa; suser=sa; database=master
+[+] VALID   [A] redis   10.10.1.13:6379 no-auth; redis_version=7.0.15; role=master
 [+] VALID   [C] ssh     10.10.1.20:22   user=test; ssh access confirmed; whoami => test
 [-] INVALID [C] ssh     10.10.1.21:22   user=admin; login failed
 [*] SKIPPED [A] ssh     10.10.1.22:22   anon-only mode; ssh has no anonymous auth
@@ -189,6 +215,24 @@ smb     valid=1 invalid=1 errors=0 skipped=1
 telnet  valid=1 invalid=0 errors=0 skipped=0
 ```
 
+Priority triage summary:
+
+```text
+==== PRIORITY TARGETS ====
+HIGH:
+  10.10.1.20:5985       winrm   [C] CORP\svc-backup  whoami => corp\svc-backup
+  10.10.1.21:22         ssh     [C] test             whoami => test
+
+MEDIUM:
+  10.10.1.30:445        smb     [C] test             shares=IPC$,backup
+  10.10.1.40:6379       redis   [A] no-auth          role=master
+
+LOW:
+  10.10.1.50:161        snmp    [A] public           sysName=core-sw01
+```
+
+The priority block includes only `VALID` findings, sorts them by host and service within each priority, truncates long proof text, and never prints passwords.
+
 For LDAPS in internal lab environments with self-signed certificates, use `--ldap-insecure-skip-verify` when strict certificate validation blocks otherwise-valid read-only checks.
 
 For WinRM over TLS in internal lab environments with self-signed certificates, use `--winrm-insecure` when strict certificate validation blocks otherwise-valid `whoami` proof checks.
@@ -196,6 +240,12 @@ For WinRM over TLS in internal lab environments with self-signed certificates, u
 SNMP currently supports v1 and v2c read-only validation only. SNMPv3 is planned but not implemented.
 
 MSSQL validation in v1 uses SQL login attempts and a read-only proof query. Domain-style usernames such as `DOMAIN\user` or `user@domain` are attempted as login names, but full Windows integrated authentication is not implemented.
+
+Redis validation in v1 is limited to `PING`, `AUTH`, and `INFO`. EntryPoint does not enumerate keys or perform write operations.
+
+NFS validation in v1 is limited to read-only export enumeration. EntryPoint does not mount exports, recurse through files, or perform write operations.
+
+rsync validation in v1 is limited to anonymous module listing. EntryPoint does not recursively list module contents, download files, or upload files.
 
 ## Documentation
 

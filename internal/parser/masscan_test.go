@@ -5,14 +5,14 @@ import (
 )
 
 func TestParseMasscanLines(t *testing.T) {
-	data := []byte("open tcp 21 10.10.10.5\n10.10.10.6:23\nopen tcp 445 10.10.10.7\nopen tcp 22 10.10.10.9\nopen tcp 389 10.10.10.10\nopen tcp 636 10.10.10.11\nopen udp 161 10.10.10.12\nopen tcp 5985 10.10.10.13\nopen tcp 5986 10.10.10.14\nopen tcp 1433 10.10.10.15\nopen tcp 80 10.10.10.8\n")
+	data := []byte("open tcp 21 10.10.10.5\n10.10.10.6:23\nopen tcp 445 10.10.10.7\nopen tcp 22 10.10.10.9\nopen tcp 389 10.10.10.10\nopen tcp 636 10.10.10.11\nopen udp 161 10.10.10.12\nopen tcp 5985 10.10.10.13\nopen tcp 5986 10.10.10.14\nopen tcp 1433 10.10.10.15\nopen tcp 873 10.10.10.16\nopen tcp 2049 10.10.10.17\nopen tcp 6379 10.10.10.18\nopen tcp 80 10.10.10.8\n")
 	targets, err := ParseMasscan(data)
 	if err != nil {
 		t.Fatalf("ParseMasscan returned error: %v", err)
 	}
 
-	if len(targets) != 10 {
-		t.Fatalf("expected 10 supported targets, got %d", len(targets))
+	if len(targets) != 13 {
+		t.Fatalf("expected 13 supported targets, got %d", len(targets))
 	}
 
 	if targets[0].Service != "ftp" {
@@ -44,6 +44,15 @@ func TestParseMasscanLines(t *testing.T) {
 	}
 	if targets[9].Service != "mssql" || targets[9].Proto != "tcp" {
 		t.Fatalf("expected tcp mssql, got %+v", targets[9])
+	}
+	if targets[10].Service != "rsync" || targets[10].Proto != "tcp" {
+		t.Fatalf("expected tcp rsync, got %+v", targets[10])
+	}
+	if targets[11].Service != "nfs" || targets[11].Proto != "tcp" {
+		t.Fatalf("expected tcp nfs, got %+v", targets[11])
+	}
+	if targets[12].Service != "redis" || targets[12].Proto != "tcp" {
+		t.Fatalf("expected tcp redis, got %+v", targets[12])
 	}
 }
 
