@@ -126,11 +126,17 @@ func checkTelnetAttempt(ctx context.Context, target core.Target, cred core.Crede
 
 	proof, proofErr := telnetProofSessionFunc(ctx, conn, timeout)
 	if proofErr == nil {
-		return core.ValidFinding(target, "credential", displayUser(cred), proof, "telnet access confirmed via harmless command output")
+		return core.WithCredentialPassword(
+			core.ValidFinding(target, "credential", displayUser(cred), proof, "telnet access confirmed via harmless command output"),
+			cred.Password,
+		)
 	}
 
 	// Prompt change alone is accepted only when it clearly looks like a real shell/device prompt.
-	return core.ValidFinding(target, "credential", displayUser(cred), postAuth, "telnet access confirmed by post-auth prompt change; proof command unavailable")
+	return core.WithCredentialPassword(
+		core.ValidFinding(target, "credential", displayUser(cred), postAuth, "telnet access confirmed by post-auth prompt change; proof command unavailable"),
+		cred.Password,
+	)
 }
 
 func telnetProofSession(ctx context.Context, conn net.Conn, timeout time.Duration) (string, error) {

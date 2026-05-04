@@ -12,8 +12,9 @@ type Writer struct {
 }
 
 type Manager struct {
-	full    *Writer
-	success *Writer
+	full                   *Writer
+	success                *Writer
+	redactSuccessPasswords bool
 }
 
 func NewWriter(path string) (*Writer, error) {
@@ -30,7 +31,7 @@ func NewWriter(path string) (*Writer, error) {
 	return writer, nil
 }
 
-func NewManager(fullPath, successPath string) (*Manager, error) {
+func NewManager(fullPath, successPath string, redactSuccessPasswords bool) (*Manager, error) {
 	full, err := NewWriter(fullPath)
 	if err != nil {
 		return nil, err
@@ -43,8 +44,9 @@ func NewManager(fullPath, successPath string) (*Manager, error) {
 	}
 
 	return &Manager{
-		full:    full,
-		success: success,
+		full:                   full,
+		success:                success,
+		redactSuccessPasswords: redactSuccessPasswords,
 	}, nil
 }
 
@@ -67,7 +69,7 @@ func (m *Manager) WriteSuccessFinding(finding core.Finding) error {
 	if m == nil || m.success == nil || !finding.Success {
 		return nil
 	}
-	return m.success.WriteLine(ui.SuccessLogLine(finding))
+	return m.success.WriteLine(ui.SuccessLogLine(finding, m.redactSuccessPasswords))
 }
 
 func (m *Manager) Close() error {

@@ -42,6 +42,8 @@ EntryPoint is built to stay low-noise and conservative:
 - Supports `--no-color` for plain terminal output.
 - Can mirror the same output to a plain-text file with `--outfile`.
 - Can write only successful findings to a plain-text file with `--log-success`.
+- Shows the exact working password for successful credential findings by default.
+- Supports `--redact-success-passwords` for safer sharing, screenshots, or exported logs.
 - Supports MSSQL login validation with a read-only proof query.
 - Supports NFS export validation through read-only export enumeration.
 - Supports rsync validation through read-only anonymous module listing.
@@ -89,6 +91,7 @@ make build
 ./bin/entrypoint --masscan masscan.txt --only snmp --anon-only
 ./bin/entrypoint --masscan scans.txt --only ssh --creds creds.txt --outfile entrypoint.log
 ./bin/entrypoint --masscan scans.txt --creds creds.txt --log-success valid.log
+./bin/entrypoint --masscan scans.txt --creds creds.txt --redact-success-passwords
 ./bin/entrypoint --masscan scans.txt --only winrm --creds creds.txt
 ./bin/entrypoint --masscan scans.txt --only winrm-ssl --creds creds.txt --winrm-insecure
 ./bin/entrypoint --masscan scans.txt --no-color
@@ -158,6 +161,10 @@ When `--log-success valid.log` is used, EntryPoint writes only successful `VALID
 - The log is always plain text with no ANSI colors
 - `--outfile` and `--log-success` can be used together
 
+Successful credential findings include the working password by default in terminal output, `--outfile`, `--log-success`, and summary views.
+
+Use `--redact-success-passwords` when sharing output or taking screenshots and you do not want successful passwords displayed.
+
 Build artifacts are written to `bin/`. The `bin/` directory is gitignored and local binaries should not be committed.
 
 ## Terminal Output
@@ -176,8 +183,8 @@ Example output:
 [-] INVALID [A] snmp    10.10.1.21:161  no valid community strings; tried 5
 [!] ERROR   [A] snmp    10.10.1.22:161  timeout/no response
 [+] VALID   [A] ldap    10.10.1.10:389  anonymous bind + RootDSE query successful; defaultNamingContext=DC=corp,DC=local
-[+] VALID   [C] ldaps   10.10.1.11:636  user=CORP\test; bind + RootDSE query successful; defaultNamingContext=DC=corp,DC=local
-[+] VALID   [C] mssql   10.10.1.12:1433 user=sa; system_user=sa; suser=sa; database=master
+[+] VALID   [C] ldaps   10.10.1.11:636  user=CORP\test; password=Winter2024!; bind + RootDSE query successful; defaultNamingContext=DC=corp,DC=local
+[+] VALID   [C] mssql   10.10.1.12:1433 user=sa; password=Sup3rSecret!; system_user=sa; suser=sa; database=master
 [+] VALID   [A] redis   10.10.1.13:6379 no-auth; redis_version=7.0.15; role=master
 [+] VALID   [C] ssh     10.10.1.20:22   user=test; ssh access confirmed; whoami => test
 [-] INVALID [C] ssh     10.10.1.21:22   user=admin; login failed
@@ -195,7 +202,7 @@ Terminal auth markers:
 - `[A]`: anonymous or null-session checks
 - `[C]`: credential checks
 
-Passwords are not written to terminal output, `--outfile`, or `--log-success`.
+By default, EntryPoint shows the exact working password for successful credential findings. It never prints passwords for `INVALID`, `ERROR`, or `SKIPPED` findings.
 
 End-of-run summary:
 
@@ -220,8 +227,8 @@ Priority triage summary:
 ```text
 ==== PRIORITY TARGETS ====
 HIGH:
-  10.10.1.20:5985       winrm   [C] CORP\svc-backup  whoami => corp\svc-backup
-  10.10.1.21:22         ssh     [C] test             whoami => test
+  10.10.1.20:5985       winrm   [C] CORP\svc-backup  password=Sup3rSecret!; whoami => corp\svc-backup
+  10.10.1.21:22         ssh     [C] test             password=SuperSecret123!; whoami => test
 
 MEDIUM:
   10.10.1.30:445        smb     [C] test             shares=IPC$,backup
@@ -231,7 +238,7 @@ LOW:
   10.10.1.50:161        snmp    [A] public           sysName=core-sw01
 ```
 
-The priority block includes only `VALID` findings, sorts them by host and service within each priority, truncates long proof text, and never prints passwords.
+The priority block includes only `VALID` findings, sorts them by host and service within each priority, truncates long proof text, and shows working passwords unless `--redact-success-passwords` is set.
 
 For LDAPS in internal lab environments with self-signed certificates, use `--ldap-insecure-skip-verify` when strict certificate validation blocks otherwise-valid read-only checks.
 

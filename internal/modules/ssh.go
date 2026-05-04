@@ -81,7 +81,10 @@ func checkSSHAttempt(ctx context.Context, target core.Target, cred core.Credenti
 		return core.ErrorFinding(target, "credential", displayUser(cred), "", fmt.Sprintf("ssh authentication succeeded but proof command failed: %v", sanitizeSSHError(err)))
 	}
 
-	return core.ValidFinding(target, "credential", displayUser(cred), proof, "ssh access confirmed")
+	return core.WithCredentialPassword(
+		core.ValidFinding(target, "credential", displayUser(cred), proof, "ssh access confirmed"),
+		cred.Password,
+	)
 }
 
 func sshClient(conn net.Conn, address string, cred core.Credential, timeout time.Duration) (*ssh.Client, error) {

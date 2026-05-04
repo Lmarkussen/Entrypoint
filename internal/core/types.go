@@ -32,6 +32,7 @@ type Finding struct {
 	Service  string `json:"service"`
 	AuthType string `json:"auth_type"`
 	Username string `json:"username"`
+	Password string `json:"password,omitempty"`
 	Success  bool   `json:"success"`
 	Severity string `json:"severity"`
 	Evidence string `json:"evidence"`
@@ -48,6 +49,7 @@ type Options struct {
 	LDAPInsecureSkipVerify bool          `json:"ldap_insecure_skip_verify"`
 	SNMPCommunities        []string      `json:"snmp_communities"`
 	WinRMInsecure          bool          `json:"winrm_insecure"`
+	RedactSuccessPasswords bool          `json:"redact_success_passwords"`
 }
 
 type Summary struct {

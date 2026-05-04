@@ -44,7 +44,7 @@ func TestManagerWritesOnlyValidFindingsToSuccessLog(t *testing.T) {
 	fullPath := filepath.Join(dir, "entrypoint.log")
 	successPath := filepath.Join(dir, "valid.log")
 
-	manager, err := NewManager(fullPath, successPath)
+	manager, err := NewManager(fullPath, successPath, false)
 	if err != nil {
 		t.Fatalf("NewManager returned error: %v", err)
 	}
@@ -56,7 +56,7 @@ func TestManagerWritesOnlyValidFindingsToSuccessLog(t *testing.T) {
 	if err := manager.WriteSuccessFinding(core.InvalidFinding(core.Target{Host: "10.10.10.1", Port: 21, Service: "ftp"}, "credential", "admin", "", "login failed")); err != nil {
 		t.Fatalf("WriteSuccessFinding invalid returned error: %v", err)
 	}
-	if err := manager.WriteSuccessFinding(core.ValidFinding(core.Target{Host: "10.10.10.2", Port: 445, Service: "smb"}, "credential", `CORP\test`, "shares=SYSVOL,NETLOGON", "")); err != nil {
+	if err := manager.WriteSuccessFinding(core.WithCredentialPassword(core.ValidFinding(core.Target{Host: "10.10.10.2", Port: 445, Service: "smb"}, "credential", `CORP\test`, "shares=SYSVOL,NETLOGON", ""), "Winter2024!")); err != nil {
 		t.Fatalf("WriteSuccessFinding valid returned error: %v", err)
 	}
 
@@ -73,7 +73,7 @@ func TestManagerWritesOnlyValidFindingsToSuccessLog(t *testing.T) {
 		t.Fatalf("ReadFile success returned error: %v", err)
 	}
 	got := string(successData)
-	if got != "VALID [C] smb 10.10.10.2:445 user=CORP\\test; shares=SYSVOL,NETLOGON\n" {
+	if got != "VALID [C] smb 10.10.10.2:445 user=CORP\\test; password=Winter2024!; shares=SYSVOL,NETLOGON\n" {
 		t.Fatalf("unexpected success log contents: %q", got)
 	}
 	if containsANSI(got) {
@@ -83,7 +83,7 @@ func TestManagerWritesOnlyValidFindingsToSuccessLog(t *testing.T) {
 
 func TestManagerWritesRedisValidFindingOnlyToSuccessLog(t *testing.T) {
 	dir := t.TempDir()
-	manager, err := NewManager(filepath.Join(dir, "entrypoint.log"), filepath.Join(dir, "valid.log"))
+	manager, err := NewManager(filepath.Join(dir, "entrypoint.log"), filepath.Join(dir, "valid.log"), false)
 	if err != nil {
 		t.Fatalf("NewManager returned error: %v", err)
 	}
@@ -120,7 +120,7 @@ func TestManagerWritesRedisValidFindingOnlyToSuccessLog(t *testing.T) {
 
 func TestManagerWritesNFSValidFindingOnlyToSuccessLog(t *testing.T) {
 	dir := t.TempDir()
-	manager, err := NewManager(filepath.Join(dir, "entrypoint.log"), filepath.Join(dir, "valid.log"))
+	manager, err := NewManager(filepath.Join(dir, "entrypoint.log"), filepath.Join(dir, "valid.log"), false)
 	if err != nil {
 		t.Fatalf("NewManager returned error: %v", err)
 	}
@@ -160,7 +160,7 @@ func TestManagerWritesNFSValidFindingOnlyToSuccessLog(t *testing.T) {
 
 func TestManagerWritesRsyncValidFindingOnlyToSuccessLog(t *testing.T) {
 	dir := t.TempDir()
-	manager, err := NewManager(filepath.Join(dir, "entrypoint.log"), filepath.Join(dir, "valid.log"))
+	manager, err := NewManager(filepath.Join(dir, "entrypoint.log"), filepath.Join(dir, "valid.log"), false)
 	if err != nil {
 		t.Fatalf("NewManager returned error: %v", err)
 	}
@@ -198,9 +198,37 @@ func TestManagerWritesRsyncValidFindingOnlyToSuccessLog(t *testing.T) {
 	}
 }
 
+func TestManagerRedactsSuccessfulPasswordsInSuccessLogWhenRequested(t *testing.T) {
+	dir := t.TempDir()
+	manager, err := NewManager(filepath.Join(dir, "entrypoint.log"), filepath.Join(dir, "valid.log"), true)
+	if err != nil {
+		t.Fatalf("NewManager returned error: %v", err)
+	}
+	defer manager.Close()
+
+	if err := manager.WriteSuccessFinding(core.WithCredentialPassword(
+		core.ValidFinding(core.Target{Host: "10.10.10.70", Port: 22, Service: "ssh"}, "credential", "test", "whoami => test", ""),
+		"SuperSecret123!",
+	)); err != nil {
+		t.Fatalf("WriteSuccessFinding returned error: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(dir, "valid.log"))
+	if err != nil {
+		t.Fatalf("ReadFile returned error: %v", err)
+	}
+	got := string(data)
+	if strings.Contains(got, "password=") {
+		t.Fatalf("did not expect password in redacted success log: %q", got)
+	}
+	if !strings.Contains(got, "user=test; whoami => test") {
+		t.Fatalf("unexpected redacted success log contents: %q", got)
+	}
+}
+
 func TestManagerWritesPriorityBlockPlainTextToOutfile(t *testing.T) {
 	dir := t.TempDir()
-	manager, err := NewManager(filepath.Join(dir, "entrypoint.log"), "")
+	manager, err := NewManager(filepath.Join(dir, "entrypoint.log"), "", false)
 	if err != nil {
 		t.Fatalf("NewManager returned error: %v", err)
 	}
@@ -214,7 +242,7 @@ func TestManagerWritesPriorityBlockPlainTextToOutfile(t *testing.T) {
 			"whoami => test",
 			"",
 		),
-	}, false)
+	}, false, false)
 
 	if err := manager.WriteFull(block); err != nil {
 		t.Fatalf("WriteFull returned error: %v", err)

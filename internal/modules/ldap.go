@@ -195,7 +195,10 @@ func checkLDAPAttempt(ctx context.Context, target core.Target, cred core.Credent
 		if authType == "anonymous" {
 			return core.ValidFinding(target, authType, "", evidence, "anonymous bind + RootDSE query successful")
 		}
-		return core.ValidFinding(target, authType, displayUser(cred), evidence, "bind + RootDSE query successful")
+		return core.WithCredentialPassword(
+			core.ValidFinding(target, authType, displayUser(cred), evidence, "bind + RootDSE query successful"),
+			cred.Password,
+		)
 	}
 }
 

@@ -167,7 +167,10 @@ func smbValidFinding(target core.Target, authType string, cred core.Credential, 
 		}
 		return core.ValidFinding(target, authType, displayUser(cred), "", "null session confirmed; "+shareText)
 	default:
-		return core.ValidFinding(target, authType, displayUser(cred), "", shareText)
+		return core.WithCredentialPassword(
+			core.ValidFinding(target, authType, displayUser(cred), "", shareText),
+			cred.Password,
+		)
 	}
 }
 

@@ -67,7 +67,7 @@ func run() error {
 		return errors.New("no runnable modules matched the supplied targets and filters")
 	}
 
-	writer, err := output.NewManager(cfg.OutputFile, cfg.SuccessLogFile)
+	writer, err := output.NewManager(cfg.OutputFile, cfg.SuccessLogFile, cfg.Options.RedactSuccessPasswords)
 	if err != nil {
 		return fmt.Errorf("init output: %w", err)
 	}
@@ -90,7 +90,10 @@ func run() error {
 	summary := core.BuildSummary(targets, selectedModules)
 	writeLine(ui.SummaryLine(summary, cfg.Options, len(creds), color), ui.SummaryLine(summary, cfg.Options, len(creds), false))
 	for _, finding := range skippedTargets {
-		writeLine(ui.FindingLine(finding, color), ui.FindingLine(finding, false))
+		writeLine(
+			ui.FindingLine(finding, color, cfg.Options.RedactSuccessPasswords),
+			ui.FindingLine(finding, false, cfg.Options.RedactSuccessPasswords),
+		)
 		allFindings = append(allFindings, finding)
 	}
 
@@ -105,7 +108,10 @@ func run() error {
 		OnFinding: func(f core.Finding) {
 			findingsMu.Lock()
 			defer findingsMu.Unlock()
-			writeLine(ui.FindingLine(f, color), ui.FindingLine(f, false))
+			writeLine(
+				ui.FindingLine(f, color, cfg.Options.RedactSuccessPasswords),
+				ui.FindingLine(f, false, cfg.Options.RedactSuccessPasswords),
+			)
 			if err := writer.WriteSuccessFinding(f); err != nil && outputErr == nil {
 				outputErr = err
 			}
@@ -119,8 +125,14 @@ func run() error {
 
 	stats := core.ClassifyFindings(allFindings)
 	writeLine(ui.TotalsLine(stats, color), ui.TotalsLine(stats, false))
-	writeLine(ui.RunSummaryBlock(allFindings, color), ui.RunSummaryBlock(allFindings, false))
-	writeLine(ui.PriorityTargetsBlock(allFindings, color), ui.PriorityTargetsBlock(allFindings, false))
+	writeLine(
+		ui.RunSummaryBlock(allFindings, color, cfg.Options.RedactSuccessPasswords),
+		ui.RunSummaryBlock(allFindings, false, cfg.Options.RedactSuccessPasswords),
+	)
+	writeLine(
+		ui.PriorityTargetsBlock(allFindings, color, cfg.Options.RedactSuccessPasswords),
+		ui.PriorityTargetsBlock(allFindings, false, cfg.Options.RedactSuccessPasswords),
+	)
 	if outputErr != nil {
 		return fmt.Errorf("write outfile: %w", outputErr)
 	}
@@ -162,6 +174,7 @@ func parseCLI() (cliConfig, error) {
 	flag.StringVar(&cfg.OutputFile, "outfile", "", "Write plain-text output to a file")
 	flag.StringVar(&cfg.SuccessLogFile, "log-success", "", "Write only VALID findings to a plain-text file")
 	flag.BoolVar(&cfg.NoColor, "no-color", false, "Disable ANSI colors in terminal output")
+	flag.BoolVar(&cfg.Options.RedactSuccessPasswords, "redact-success-passwords", false, "Hide passwords in successful credential findings")
 	flag.IntVar(&threads, "threads", 50, "Worker concurrency")
 	flag.DurationVar(&timeout, "timeout", 5*time.Second, "Per-target timeout")
 	flag.BoolVar(&stopOnValid, "stop-on-valid", true, "Stop per target after first confirmed valid access")

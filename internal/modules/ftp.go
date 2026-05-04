@@ -108,7 +108,10 @@ func checkFTPAttempt(ctx context.Context, target core.Target, cred core.Credenti
 		if validErr != nil {
 			return core.ErrorFinding(target, authType, displayUser(cred), loginEvidence, validErr.Error())
 		}
-		return core.ValidFinding(target, authType, displayUser(cred), evidence, "ftp access confirmed via login and post-login command")
+		return core.WithCredentialPassword(
+			core.ValidFinding(target, authType, displayUser(cred), evidence, "ftp access confirmed via login and post-login command"),
+			cred.Password,
+		)
 	}
 
 	if code == 530 {
@@ -134,7 +137,10 @@ func checkFTPAttempt(ctx context.Context, target core.Target, cred core.Credenti
 		if validErr != nil {
 			return core.ErrorFinding(target, authType, displayUser(cred), loginEvidence, validErr.Error())
 		}
-		return core.ValidFinding(target, authType, displayUser(cred), evidence, "ftp access confirmed via login and post-login command")
+		return core.WithCredentialPassword(
+			core.ValidFinding(target, authType, displayUser(cred), evidence, "ftp access confirmed via login and post-login command"),
+			cred.Password,
+		)
 	case 530:
 		return ftpInvalidLoginFinding(target, authType, cred, loginEvidence, msg)
 	default:

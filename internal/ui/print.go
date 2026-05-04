@@ -37,8 +37,8 @@ func PrintSummary(w io.Writer, summary core.Summary, opts core.Options, credCoun
 	fmt.Fprint(w, SummaryLine(summary, opts, credCount, true))
 }
 
-func PrintFinding(w io.Writer, finding core.Finding) {
-	fmt.Fprint(w, FindingLine(finding, true))
+func PrintFinding(w io.Writer, finding core.Finding, redactSuccessPasswords bool) {
+	fmt.Fprint(w, FindingLine(finding, true, redactSuccessPasswords))
 }
 
 func PrintTotals(w io.Writer, stats core.FindingStats) {
@@ -52,15 +52,15 @@ func SummaryLine(summary core.Summary, opts core.Options, credCount int, color b
 		colorCode(color, cyan), colorCode(color, reset), summary.TotalTargets, strings.Join(services, ","), credCount, opts.IncludeAnon, opts.AnonOnly, opts.SafeMode, opts.StopOnValid)
 }
 
-func FindingLine(finding core.Finding, color bool) string {
+func FindingLine(finding core.Finding, color bool, redactSuccessPasswords bool) string {
 	label, statusColor := statusLabel(finding)
-	detail := renderFindingDetail(finding)
+	detail := renderFindingDetail(finding, redactSuccessPasswords)
 	return fmt.Sprintf("%s[%s]%s %-7s [%s] %-7s %s:%d   %s\n",
 		colorCode(color, statusColor), label, colorCode(color, reset), strings.ToUpper(core.ClassifyFinding(finding)), authLabel(finding), finding.Service, finding.Host, finding.Port, detail)
 }
 
-func SuccessLogLine(finding core.Finding) string {
-	detail := renderFindingDetail(finding)
+func SuccessLogLine(finding core.Finding, redactSuccessPasswords bool) string {
+	detail := renderFindingDetail(finding, redactSuccessPasswords)
 	return fmt.Sprintf("VALID [%s] %s %s:%d %s\n",
 		authLabel(finding), finding.Service, finding.Host, finding.Port, detail)
 }
@@ -70,7 +70,7 @@ func TotalsLine(stats core.FindingStats, color bool) string {
 		colorCode(color, cyan), colorCode(color, reset), stats.Valid, stats.Invalid, stats.Errors, stats.Skipped, stats.Anonymous)
 }
 
-func RunSummaryBlock(findings []core.Finding, color bool) string {
+func RunSummaryBlock(findings []core.Finding, color bool, redactSuccessPasswords bool) string {
 	type serviceCounts struct {
 		valid   int
 		invalid int
@@ -91,7 +91,7 @@ func RunSummaryBlock(findings []core.Finding, color bool) string {
 		switch core.ClassifyFinding(finding) {
 		case "valid":
 			counts.valid++
-			entry := summaryValidEntry(finding)
+			entry := summaryValidEntry(finding, redactSuccessPasswords)
 			key := finding.Host + "\x00" + entry
 			if _, ok := validSeen[key]; !ok {
 				validSeen[key] = struct{}{}
@@ -158,7 +158,7 @@ func RunSummaryBlock(findings []core.Finding, color bool) string {
 	return builder.String()
 }
 
-func PriorityTargetsBlock(findings []core.Finding, color bool) string {
+func PriorityTargetsBlock(findings []core.Finding, color bool, redactSuccessPasswords bool) string {
 	groups := map[string][]priorityEntry{
 		"HIGH":   {},
 		"MEDIUM": {},
@@ -180,8 +180,8 @@ func PriorityTargetsBlock(findings []core.Finding, color bool) string {
 			port:     finding.Port,
 			service:  finding.Service,
 			auth:     authLabel(finding),
-			identity: priorityIdentity(finding),
-			detail:   priorityDetail(finding),
+			identity: priorityIdentity(finding, redactSuccessPasswords),
+			detail:   priorityDetail(finding, redactSuccessPasswords),
 		})
 	}
 
@@ -270,12 +270,20 @@ func authLabel(f core.Finding) string {
 	}
 }
 
-func renderFindingDetail(f core.Finding) string {
-	parts := make([]string, 0, 3)
-	if authLabel(f) == "C" && f.Username != "" {
-		parts = append(parts, "user="+f.Username)
+func renderFindingDetail(f core.Finding, redactSuccessPasswords bool) string {
+	parts := make([]string, 0, 4)
+	if authLabel(f) == "C" {
+		switch {
+		case f.Username != "":
+			parts = append(parts, "user="+f.Username)
+		case shouldShowSuccessPassword(f, redactSuccessPasswords):
+			parts = append(parts, "password-only")
+		}
+		if passwordPart := successPasswordPart(f, redactSuccessPasswords); passwordPart != "" {
+			parts = append(parts, passwordPart)
+		}
 	}
-	if f.Notes != "" {
+	if f.Notes != "" && !(shouldShowSuccessPassword(f, redactSuccessPasswords) && f.Notes == "password-only auth") {
 		parts = append(parts, f.Notes)
 	}
 	if f.Evidence != "" {
@@ -294,13 +302,20 @@ func colorCode(enabled bool, code string) string {
 	return code
 }
 
-func summaryValidEntry(f core.Finding) string {
-	return fmt.Sprintf("%-7s [%s] %s", f.Service, authLabel(f), summaryPrincipal(f))
+func summaryValidEntry(f core.Finding, redactSuccessPasswords bool) string {
+	principal := summaryPrincipal(f, redactSuccessPasswords)
+	if passwordPart := successPasswordPart(f, redactSuccessPasswords); passwordPart != "" {
+		principal += " " + passwordPart
+	}
+	return fmt.Sprintf("%-7s [%s] %s", f.Service, authLabel(f), principal)
 }
 
-func summaryPrincipal(f core.Finding) string {
+func summaryPrincipal(f core.Finding, redactSuccessPasswords bool) string {
 	if f.Username != "" && f.Username != "<anonymous>" {
 		return f.Username
+	}
+	if authLabel(f) == "C" && shouldShowSuccessPassword(f, redactSuccessPasswords) {
+		return "password-only"
 	}
 	switch f.AuthType {
 	case "null-session":
@@ -325,10 +340,13 @@ func findingPriority(service string) string {
 	}
 }
 
-func priorityIdentity(f core.Finding) string {
+func priorityIdentity(f core.Finding, redactSuccessPasswords bool) string {
 	if authLabel(f) == "C" {
 		if f.Username != "" {
 			return f.Username
+		}
+		if shouldShowSuccessPassword(f, redactSuccessPasswords) {
+			return "password-only"
 		}
 		return "<unknown>"
 	}
@@ -365,11 +383,31 @@ func priorityIdentity(f core.Finding) string {
 	}
 }
 
-func priorityDetail(f core.Finding) string {
-	detail := firstNonEmpty(f.Evidence, f.Notes)
+func priorityDetail(f core.Finding, redactSuccessPasswords bool) string {
+	parts := make([]string, 0, 2)
+	if passwordPart := successPasswordPart(f, redactSuccessPasswords); passwordPart != "" {
+		parts = append(parts, passwordPart)
+	}
+	if detail := firstNonEmpty(f.Evidence, f.Notes); detail != "" {
+		parts = append(parts, detail)
+	}
+	detail := strings.Join(parts, "; ")
 	detail = strings.Join(strings.Fields(detail), " ")
-	detail = priorityPasswordPattern.ReplaceAllString(detail, "$1=<redacted>")
+	if redactSuccessPasswords {
+		detail = priorityPasswordPattern.ReplaceAllString(detail, "$1=<redacted>")
+	}
 	return truncateText(detail, priorityEvidenceMaxLen)
+}
+
+func shouldShowSuccessPassword(f core.Finding, redactSuccessPasswords bool) bool {
+	return f.Success && f.AuthType == "credential" && strings.TrimSpace(f.Password) != "" && !redactSuccessPasswords
+}
+
+func successPasswordPart(f core.Finding, redactSuccessPasswords bool) string {
+	if !shouldShowSuccessPassword(f, redactSuccessPasswords) {
+		return ""
+	}
+	return "password=" + f.Password
 }
 
 func truncateText(value string, maxLen int) string {

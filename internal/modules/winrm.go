@@ -112,7 +112,10 @@ func checkWinRMAttempt(ctx context.Context, target core.Target, cred core.Creden
 	if proof == "" {
 		return core.ErrorFinding(target, "credential", displayUser(cred), "", "authentication succeeded but whoami returned no usable output")
 	}
-	return core.ValidFinding(target, "credential", displayUser(cred), "whoami => "+proof, "")
+	return core.WithCredentialPassword(
+		core.ValidFinding(target, "credential", displayUser(cred), "whoami => "+proof, ""),
+		cred.Password,
+	)
 }
 
 type httpWinRMClient struct {

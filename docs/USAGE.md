@@ -158,6 +158,12 @@ Disable ANSI colors in terminal output:
 ./bin/entrypoint --masscan scan.txt --creds creds.txt --no-color
 ```
 
+Hide working passwords in successful credential findings:
+
+```bash
+./bin/entrypoint --masscan scan.txt --creds creds.txt --redact-success-passwords
+```
+
 Build artifacts are written to `bin/`. The `bin/` directory is gitignored and local binaries should not be committed.
 
 ## Flags
@@ -171,6 +177,7 @@ Build artifacts are written to `bin/`. The `bin/` directory is gitignored and lo
 - `--outfile FILE`: write the same output lines to a plain-text file
 - `--log-success FILE`: write only `VALID` findings to a plain-text file
 - `--no-color`: disable ANSI colors in terminal output
+- `--redact-success-passwords`: hide passwords for successful credential findings
 - `--ldap-insecure-skip-verify`: skip LDAPS certificate verification for self-signed lab environments
 - `--winrm-insecure`: skip WinRM HTTPS certificate verification for self-signed lab environments
 - `--snmp-communities FILE`: load SNMP community strings, one per line
@@ -242,6 +249,8 @@ Masscan JSON:
 - `--log-success` writes only successful `VALID` findings in plain text with no ANSI color codes.
 - `--outfile` and `--log-success` can be used together.
 - `--no-color` affects only terminal output. The optional outfile stays plain text either way.
+- By default, successful credential findings include the exact working password because EntryPoint is an operator validation tool.
+- `--redact-success-passwords` hides successful passwords in terminal output, `--outfile`, `--log-success`, summary output, and the priority triage block.
 - EntryPoint always prints an end-of-run summary with grouped valid access and per-service counts.
 - EntryPoint also prints a priority triage block after the summary, showing only `VALID` findings grouped into `HIGH`, `MEDIUM`, and `LOW`.
 - NFS supports anonymous-style export enumeration in `--anon-only` and does not use `--creds` in v1.
@@ -257,8 +266,8 @@ Priority triage example:
 ```text
 ==== PRIORITY TARGETS ====
 HIGH:
-  10.10.1.20:5985       winrm   [C] CORP\svc-backup  whoami => corp\svc-backup
-  10.10.1.21:22         ssh     [C] test             whoami => test
+  10.10.1.20:5985       winrm   [C] CORP\svc-backup  password=Sup3rSecret!; whoami => corp\svc-backup
+  10.10.1.21:22         ssh     [C] test             password=SuperSecret123!; whoami => test
 
 MEDIUM:
   10.10.1.30:445        smb     [C] test             shares=IPC$,backup

@@ -158,7 +158,10 @@ func checkRedisAttempt(ctx context.Context, target core.Target, cred core.Creden
 		notes = "no-auth"
 	}
 
-	return core.ValidFinding(target, authType, user, evidence, notes)
+	return core.WithCredentialPassword(
+		core.ValidFinding(target, authType, user, evidence, notes),
+		cred.Password,
+	)
 }
 
 func newRedisClient(ctx context.Context, target core.Target, timeout time.Duration) (redisClient, error) {

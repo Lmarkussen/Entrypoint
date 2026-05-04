@@ -18,7 +18,7 @@ func TestPrintFindingShowsCredentialAuthLabelAndUsername(t *testing.T) {
 		"login failed",
 	)
 
-	PrintFinding(&buf, finding)
+	PrintFinding(&buf, finding, false)
 	out := buf.String()
 
 	if !strings.Contains(out, "[C]") {
@@ -39,7 +39,7 @@ func TestPrintFindingShowsAnonymousAuthLabel(t *testing.T) {
 		"anonymous denied; tried anonymous:anonymous, anonymous:<blank>",
 	)
 
-	PrintFinding(&buf, finding)
+	PrintFinding(&buf, finding, false)
 	out := buf.String()
 
 	if !strings.Contains(out, "[A]") {
@@ -47,6 +47,83 @@ func TestPrintFindingShowsAnonymousAuthLabel(t *testing.T) {
 	}
 	if strings.Contains(out, "user=") {
 		t.Fatalf("did not expect user prefix in anonymous output: %q", out)
+	}
+}
+
+func TestPrintFindingShowsSuccessfulCredentialPasswordByDefault(t *testing.T) {
+	var buf bytes.Buffer
+	finding := core.WithCredentialPassword(
+		core.ValidFinding(
+			core.Target{Host: "10.150.64.67", Port: 22, Service: "ssh"},
+			"credential",
+			"admin",
+			"whoami => admin",
+			"ssh access confirmed",
+		),
+		"SuperSecret123!",
+	)
+
+	fmtLine := FindingLine(finding, false, false)
+	if !strings.Contains(fmtLine, "user=admin; password=SuperSecret123!; ssh access confirmed; whoami => admin") {
+		t.Fatalf("expected successful password in terminal line: %q", fmtLine)
+	}
+
+	PrintFinding(&buf, finding, false)
+	out := buf.String()
+	if !strings.Contains(out, "password=SuperSecret123!") {
+		t.Fatalf("expected successful password in printed finding: %q", out)
+	}
+}
+
+func TestPrintFindingRedactsSuccessfulCredentialPasswordWhenRequested(t *testing.T) {
+	finding := core.WithCredentialPassword(
+		core.ValidFinding(
+			core.Target{Host: "10.150.64.67", Port: 22, Service: "ssh"},
+			"credential",
+			"admin",
+			"whoami => admin",
+			"ssh access confirmed",
+		),
+		"SuperSecret123!",
+	)
+
+	line := FindingLine(finding, false, true)
+	if strings.Contains(line, "password=") {
+		t.Fatalf("did not expect password in redacted line: %q", line)
+	}
+}
+
+func TestPrintFindingNeverShowsPasswordsForNonSuccessFindings(t *testing.T) {
+	invalid := core.InvalidFinding(
+		core.Target{Host: "10.150.64.67", Port: 22, Service: "ssh"},
+		"credential",
+		"admin",
+		"",
+		"login failed",
+	)
+	invalid.Password = "SuperSecret123!"
+
+	errFinding := core.ErrorFinding(
+		core.Target{Host: "10.150.64.67", Port: 22, Service: "ssh"},
+		"credential",
+		"admin",
+		"",
+		"timeout",
+	)
+	errFinding.Password = "SuperSecret123!"
+
+	skipped := core.SkippedFinding(
+		core.Target{Host: "10.150.64.67", Port: 22, Service: "ssh"},
+		"credential",
+		"no credentials supplied",
+	)
+	skipped.Password = "SuperSecret123!"
+
+	for _, finding := range []core.Finding{invalid, errFinding, skipped} {
+		line := FindingLine(finding, false, false)
+		if strings.Contains(line, "password=") || strings.Contains(line, "SuperSecret123!") {
+			t.Fatalf("non-success finding leaked password: %q", line)
+		}
 	}
 }
 
@@ -59,7 +136,7 @@ func TestFindingLinePlainTextHasNoANSI(t *testing.T) {
 		"login failed",
 	)
 
-	line := FindingLine(finding, false)
+	line := FindingLine(finding, false, false)
 	if strings.Contains(line, "\033[") {
 		t.Fatalf("unexpected ANSI codes in plain line: %q", line)
 	}
@@ -77,12 +154,48 @@ func TestSuccessLogLineIsPlainAndOnlyContainsUsefulDetail(t *testing.T) {
 		"community=public",
 	)
 
-	line := SuccessLogLine(finding)
+	line := SuccessLogLine(finding, false)
 	if containsANSI(line) {
 		t.Fatalf("unexpected ANSI codes in success log line: %q", line)
 	}
 	if !strings.Contains(line, "VALID [A] snmp 10.10.10.20:161 community=public; sysName=core-sw01") {
 		t.Fatalf("unexpected success log line: %q", line)
+	}
+}
+
+func TestSuccessLogLineShowsPasswordByDefault(t *testing.T) {
+	finding := core.WithCredentialPassword(
+		core.ValidFinding(
+			core.Target{Host: "10.10.10.20", Port: 22, Service: "ssh"},
+			"credential",
+			"test",
+			"whoami => test",
+			"",
+		),
+		"SuperSecret123!",
+	)
+
+	line := SuccessLogLine(finding, false)
+	if !strings.Contains(line, "user=test; password=SuperSecret123!; whoami => test") {
+		t.Fatalf("unexpected success log line: %q", line)
+	}
+}
+
+func TestSuccessLogLineRedactsPasswordWhenRequested(t *testing.T) {
+	finding := core.WithCredentialPassword(
+		core.ValidFinding(
+			core.Target{Host: "10.10.10.20", Port: 22, Service: "ssh"},
+			"credential",
+			"test",
+			"whoami => test",
+			"",
+		),
+		"SuperSecret123!",
+	)
+
+	line := SuccessLogLine(finding, true)
+	if strings.Contains(line, "password=") {
+		t.Fatalf("did not expect password in redacted success log line: %q", line)
 	}
 }
 
@@ -105,7 +218,7 @@ func TestRunSummaryBlockGroupsValidByHost(t *testing.T) {
 		core.SkippedFinding(core.Target{Host: "172.16.0.30", Port: 139, Service: "smb"}, "null-session", "not supported"),
 	}
 
-	out := RunSummaryBlock(findings, false)
+	out := RunSummaryBlock(findings, false, false)
 	if !strings.Contains(out, "==== SUMMARY ====") {
 		t.Fatalf("missing summary header: %q", out)
 	}
@@ -125,7 +238,7 @@ func TestRunSummaryBlockPlainTextHasNoANSI(t *testing.T) {
 		core.ValidFinding(core.Target{Host: "172.16.0.30", Port: 389, Service: "ldap"}, "anonymous", "", "defaultNamingContext=DC=corp,DC=local", "anonymous bind + RootDSE query successful"),
 	}
 
-	out := RunSummaryBlock(findings, false)
+	out := RunSummaryBlock(findings, false, false)
 	if strings.Contains(out, "\033[") {
 		t.Fatalf("plain summary unexpectedly contains ANSI escapes: %q", out)
 	}
@@ -140,7 +253,7 @@ func TestRunSummaryBlockIncludesSNMPCounts(t *testing.T) {
 		core.InvalidFinding(core.Target{Host: "172.16.0.41", Port: 161, Service: "snmp"}, "anonymous", "", "", "no valid community strings; tried 5"),
 	}
 
-	out := RunSummaryBlock(findings, false)
+	out := RunSummaryBlock(findings, false, false)
 	if !strings.Contains(out, "snmp    valid=1 invalid=1 errors=0 skipped=0") {
 		t.Fatalf("missing snmp counts: %q", out)
 	}
@@ -158,7 +271,7 @@ func TestPriorityTargetsBlockGroupsAndSorts(t *testing.T) {
 		core.ValidFinding(core.Target{Host: "10.10.1.40", Port: 6379, Service: "redis"}, "anonymous", "", "role=master", "no-auth"),
 	}
 
-	out := PriorityTargetsBlock(findings, false)
+	out := PriorityTargetsBlock(findings, false, false)
 	if !strings.Contains(out, "==== PRIORITY TARGETS ====") {
 		t.Fatalf("missing priority header: %q", out)
 	}
@@ -190,7 +303,7 @@ func TestPriorityTargetsBlockNoneWhenNoValidFindings(t *testing.T) {
 		core.InvalidFinding(core.Target{Host: "10.10.1.21", Port: 21, Service: "ftp"}, "anonymous", "", "", "anonymous denied"),
 	}
 
-	out := PriorityTargetsBlock(findings, false)
+	out := PriorityTargetsBlock(findings, false, false)
 	if out != "==== PRIORITY TARGETS ====\nnone\n" {
 		t.Fatalf("unexpected no-valid block: %q", out)
 	}
@@ -202,7 +315,7 @@ func TestPriorityTargetsBlockTruncatesEvidenceAndRedactsPasswords(t *testing.T) 
 		core.ValidFinding(core.Target{Host: "10.10.1.20", Port: 5985, Service: "winrm"}, "credential", "admin", longEvidence, ""),
 	}
 
-	out := PriorityTargetsBlock(findings, false)
+	out := PriorityTargetsBlock(findings, false, false)
 	if strings.Contains(out, "Secret123!") {
 		t.Fatalf("priority block leaked password: %q", out)
 	}
@@ -219,7 +332,7 @@ func TestPriorityTargetsBlockPlainTextHasNoANSI(t *testing.T) {
 		core.ValidFinding(core.Target{Host: "10.10.1.20", Port: 873, Service: "rsync"}, "anonymous", "", "modules=backup,www", ""),
 	}
 
-	out := PriorityTargetsBlock(findings, false)
+	out := PriorityTargetsBlock(findings, false, false)
 	if strings.Contains(out, "\033[") {
 		t.Fatalf("plain priority block unexpectedly contains ANSI escapes: %q", out)
 	}
@@ -233,9 +346,91 @@ func TestPriorityTargetsBlockHandlesNullSessionIdentity(t *testing.T) {
 		core.ValidFinding(core.Target{Host: "10.10.1.30", Port: 445, Service: "smb"}, "null-session", "", "shares=IPC$,backup", ""),
 	}
 
-	out := PriorityTargetsBlock(findings, false)
+	out := PriorityTargetsBlock(findings, false, false)
 	if !strings.Contains(out, "[A] null/guest") {
 		t.Fatalf("expected null/guest identity, got %q", out)
+	}
+}
+
+func TestPriorityTargetsBlockShowsSuccessfulPasswordByDefault(t *testing.T) {
+	findings := []core.Finding{
+		core.WithCredentialPassword(
+			core.ValidFinding(core.Target{Host: "10.10.1.30", Port: 445, Service: "smb"}, "credential", "test", "shares=IPC$,backup", ""),
+			"SuperSecret123!",
+		),
+	}
+
+	out := PriorityTargetsBlock(findings, false, false)
+	if !strings.Contains(out, "password=SuperSecret123!") {
+		t.Fatalf("expected password in priority block: %q", out)
+	}
+}
+
+func TestPriorityTargetsBlockRedactsSuccessfulPasswordWhenRequested(t *testing.T) {
+	findings := []core.Finding{
+		core.WithCredentialPassword(
+			core.ValidFinding(core.Target{Host: "10.10.1.30", Port: 445, Service: "smb"}, "credential", "test", "shares=IPC$,backup", ""),
+			"SuperSecret123!",
+		),
+	}
+
+	out := PriorityTargetsBlock(findings, false, true)
+	if strings.Contains(out, "password=") {
+		t.Fatalf("did not expect password in redacted priority block: %q", out)
+	}
+}
+
+func TestSummaryBlockShowsSuccessfulPasswordByDefault(t *testing.T) {
+	findings := []core.Finding{
+		core.WithCredentialPassword(
+			core.ValidFinding(core.Target{Host: "172.16.0.30", Port: 22, Service: "ssh"}, "credential", "test", "", ""),
+			"SuperSecret123!",
+		),
+	}
+
+	out := RunSummaryBlock(findings, false, false)
+	if !strings.Contains(out, "ssh     [C] test password=SuperSecret123!") {
+		t.Fatalf("expected password in summary block: %q", out)
+	}
+}
+
+func TestSummaryBlockRedactsSuccessfulPasswordWhenRequested(t *testing.T) {
+	findings := []core.Finding{
+		core.WithCredentialPassword(
+			core.ValidFinding(core.Target{Host: "172.16.0.30", Port: 22, Service: "ssh"}, "credential", "test", "", ""),
+			"SuperSecret123!",
+		),
+	}
+
+	out := RunSummaryBlock(findings, false, true)
+	if strings.Contains(out, "password=") {
+		t.Fatalf("did not expect password in redacted summary block: %q", out)
+	}
+}
+
+func TestRedisPasswordOnlyValidFindingRendersPasswordOnlyIdentity(t *testing.T) {
+	finding := core.WithCredentialPassword(
+		core.ValidFinding(
+			core.Target{Host: "10.10.1.40", Port: 6379, Service: "redis"},
+			"credential",
+			"",
+			"redis_version=7.0.15; role=master",
+			"password-only auth",
+		),
+		"RedisSecret!",
+	)
+
+	line := FindingLine(finding, false, false)
+	if !strings.Contains(line, "password-only; password=RedisSecret!") {
+		t.Fatalf("expected password-only credential identity in line: %q", line)
+	}
+
+	out := PriorityTargetsBlock([]core.Finding{finding}, false, false)
+	if !strings.Contains(out, "[C] password-only") {
+		t.Fatalf("expected password-only identity in priority block: %q", out)
+	}
+	if strings.Contains(out, "<unknown>") {
+		t.Fatalf("did not expect <unknown> identity in priority block: %q", out)
 	}
 }
 

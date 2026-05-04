@@ -94,7 +94,10 @@ func checkMSSQLAttempt(ctx context.Context, target core.Target, cred core.Creden
 	if evidence == "" {
 		return core.ErrorFinding(target, "credential", displayUser(cred), "", "authentication succeeded but proof query returned no usable evidence")
 	}
-	return core.ValidFinding(target, "credential", displayUser(cred), evidence, "")
+	return core.WithCredentialPassword(
+		core.ValidFinding(target, "credential", displayUser(cred), evidence, ""),
+		cred.Password,
+	)
 }
 
 func openMSSQLDB(address string, cred core.Credential, timeout time.Duration) (*sql.DB, string, error) {

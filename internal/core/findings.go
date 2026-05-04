@@ -66,6 +66,14 @@ func SkippedFinding(target Target, authType, notes string) Finding {
 	}
 }
 
+func WithCredentialPassword(f Finding, password string) Finding {
+	if !f.Success || f.AuthType != "credential" || strings.TrimSpace(password) == "" {
+		return f
+	}
+	f.Password = password
+	return f
+}
+
 func ClassifyFinding(f Finding) string {
 	if f.Success {
 		return "valid"
