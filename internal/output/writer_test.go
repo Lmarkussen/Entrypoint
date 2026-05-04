@@ -261,6 +261,39 @@ func TestManagerWritesPriorityBlockPlainTextToOutfile(t *testing.T) {
 	}
 }
 
+func TestManagerWritesCollapsedInfrastructureErrorPlainTextToOutfile(t *testing.T) {
+	dir := t.TempDir()
+	manager, err := NewManager(filepath.Join(dir, "entrypoint.log"), "", false)
+	if err != nil {
+		t.Fatalf("NewManager returned error: %v", err)
+	}
+	defer manager.Close()
+
+	line := ui.FindingLine(core.ErrorFinding(
+		core.Target{Host: "10.10.10.80", Port: 389, Service: "ldap"},
+		core.AuthTypeInfrastructure,
+		"",
+		"",
+		"local socket blocked / operation not permitted",
+	), false, false)
+
+	if err := manager.WriteFull(line); err != nil {
+		t.Fatalf("WriteFull returned error: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(dir, "entrypoint.log"))
+	if err != nil {
+		t.Fatalf("ReadFile returned error: %v", err)
+	}
+	got := string(data)
+	if containsANSI(got) {
+		t.Fatalf("outfile should not contain ANSI escapes: %q", got)
+	}
+	if !strings.Contains(got, "[I] ldap") {
+		t.Fatalf("expected infrastructure auth label in outfile: %q", got)
+	}
+}
+
 func containsANSI(s string) bool {
 	for i := 0; i < len(s); i++ {
 		if s[i] == 0x1b {

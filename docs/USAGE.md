@@ -253,6 +253,8 @@ Masscan JSON:
 - `--redact-success-passwords` hides successful passwords in terminal output, `--outfile`, `--log-success`, summary output, and the priority triage block.
 - EntryPoint always prints an end-of-run summary with grouped valid access and per-service counts.
 - EntryPoint also prints a priority triage block after the summary, showing only `VALID` findings grouped into `HIGH`, `MEDIUM`, and `LOW`.
+- Common socket/network failures are normalized into short messages like `timeout`, `connection refused`, or `local socket blocked / operation not permitted`.
+- When every credential would fail with the same connection-level problem, EntryPoint collapses those repeated errors into a single `[I]` infrastructure error line.
 - NFS supports anonymous-style export enumeration in `--anon-only` and does not use `--creds` in v1.
 - rsync supports anonymous-style module listing in `--anon-only` and does not use `--creds` in v1.
 - Redis supports no-auth checks in `--anon-only` and password-based checks with `--creds`.
@@ -274,4 +276,10 @@ MEDIUM:
 
 LOW:
   10.10.1.50:161        snmp    [A] public           sysName=core-sw01
+```
+
+Collapsed infrastructure error example:
+
+```text
+[!] ERROR   [I] ldap    172.16.0.30:389  local socket blocked / operation not permitted
 ```

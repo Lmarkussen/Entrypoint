@@ -53,6 +53,8 @@ EntryPoint is built to stay low-noise and conservative:
 - Distinguishes anonymous/null checks from credential checks in terminal output with `[A]` and `[C]`.
 - Prints a concise end-of-run summary grouped by host plus per-service counts.
 - Prints a concise priority triage block that ranks successful findings into `HIGH`, `MEDIUM`, and `LOW`.
+- Normalizes common socket/network errors into short operator-facing messages.
+- Collapses repeated connection-level infrastructure errors into a single line per host/service when every credential would fail the same way.
 
 ## Safety Model
 
@@ -195,6 +197,7 @@ Example output:
 [!] ERROR   [C] telnet  10.10.1.30:23   user=admin; timeout waiting for password prompt
 [*] SKIPPED [A] telnet  10.10.1.30:23   anon-only mode; telnet has no anonymous auth
 [!] ERROR   [C] telnet  10.10.1.31:23   user=admin; connection closed before login prompt
+[!] ERROR   [I] ldap    10.10.1.32:389  local socket blocked / operation not permitted
 ```
 
 Terminal auth markers:
@@ -239,6 +242,8 @@ LOW:
 ```
 
 The priority block includes only `VALID` findings, sorts them by host and service within each priority, truncates long proof text, and shows working passwords unless `--redact-success-passwords` is set.
+
+When EntryPoint encounters the same connection-level failure for every credential on a target, it collapses the repeated errors into a single `[I]` infrastructure error line and normalizes noisy socket text into concise messages like `timeout`, `connection refused`, or `local socket blocked / operation not permitted`.
 
 For LDAPS in internal lab environments with self-signed certificates, use `--ldap-insecure-skip-verify` when strict certificate validation blocks otherwise-valid read-only checks.
 

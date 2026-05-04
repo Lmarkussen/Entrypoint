@@ -127,6 +127,25 @@ func TestPrintFindingNeverShowsPasswordsForNonSuccessFindings(t *testing.T) {
 	}
 }
 
+func TestFindingLineShowsInfrastructureAuthLabelForCollapsedError(t *testing.T) {
+	finding := core.ErrorFinding(
+		core.Target{Host: "10.150.64.67", Port: 389, Service: "ldap"},
+		core.AuthTypeInfrastructure,
+		"",
+		"",
+		"local socket blocked / operation not permitted",
+	)
+	finding.Password = "SuperSecret123!"
+
+	line := FindingLine(finding, false, false)
+	if !strings.Contains(line, "[I]") {
+		t.Fatalf("expected infrastructure auth label in %q", line)
+	}
+	if strings.Contains(line, "password=") || strings.Contains(line, "SuperSecret123!") {
+		t.Fatalf("collapsed infrastructure error leaked password: %q", line)
+	}
+}
+
 func TestFindingLinePlainTextHasNoANSI(t *testing.T) {
 	finding := core.InvalidFinding(
 		core.Target{Host: "10.150.64.67", Port: 21, Service: "ftp"},

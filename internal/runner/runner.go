@@ -63,7 +63,7 @@ func Run(ctx context.Context, cfg Config) error {
 }
 
 func runModuleCheck(ctx context.Context, cfg Config, job task) {
-	findings := job.module.Check(ctx, job.target, cfg.Creds, cfg.Options)
+	findings := core.NormalizeAndCollapseFindings(job.module.Check(ctx, job.target, cfg.Creds, cfg.Options))
 	for _, finding := range findings {
 		if cfg.OnFinding != nil {
 			cfg.OnFinding(finding)

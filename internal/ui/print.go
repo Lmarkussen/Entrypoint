@@ -265,6 +265,8 @@ func authLabel(f core.Finding) string {
 		return "A"
 	case "credential":
 		return "C"
+	case core.AuthTypeInfrastructure:
+		return "I"
 	default:
 		return "I"
 	}
