@@ -58,6 +58,12 @@ type Summary struct {
 	SelectedServices []string
 }
 
+type CredentialSourceSummary struct {
+	Total       int
+	CustomCount int
+	TopCount    int
+}
+
 type FindingStats struct {
 	Valid     int
 	Invalid   int

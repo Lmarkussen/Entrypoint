@@ -29,6 +29,28 @@ func TestPrintFindingShowsCredentialAuthLabelAndUsername(t *testing.T) {
 	}
 }
 
+func TestPrintFindingShowsSummarizedInvalidCredentialFailure(t *testing.T) {
+	var buf bytes.Buffer
+	finding := core.InvalidFinding(
+		core.Target{Host: "10.150.64.67", Port: 22, Service: "ssh"},
+		"credential",
+		"admin",
+		"",
+		"login failed; tried 5 passwords",
+	)
+	finding.Password = "ShouldNotLeak"
+
+	PrintFinding(&buf, finding, false)
+	out := buf.String()
+
+	if !strings.Contains(out, "user=admin; login failed; tried 5 passwords") {
+		t.Fatalf("unexpected summarized invalid detail: %q", out)
+	}
+	if strings.Contains(out, "ShouldNotLeak") || strings.Contains(out, "password=") {
+		t.Fatalf("unexpected password leakage in summarized invalid output: %q", out)
+	}
+}
+
 func TestPrintFindingShowsAnonymousAuthLabel(t *testing.T) {
 	var buf bytes.Buffer
 	finding := core.InvalidFinding(
@@ -225,6 +247,32 @@ func TestBannerTextPlainHasNoANSI(t *testing.T) {
 	}
 	if strings.Contains(BannerText(text, false), "\033[") {
 		t.Fatal("plain banner unexpectedly contains ANSI escapes")
+	}
+}
+
+func TestSummaryLineShowsTopCredsSource(t *testing.T) {
+	line := SummaryLine(
+		core.Summary{TotalTargets: 1, SelectedServices: []string{"ssh"}},
+		core.DefaultOptions(),
+		core.CredentialSourceSummary{Total: 11, TopCount: 11},
+		false,
+	)
+
+	if !strings.Contains(line, "creds=11 (top creds)") {
+		t.Fatalf("unexpected summary line: %q", line)
+	}
+}
+
+func TestSummaryLineShowsMergedCredSourceCounts(t *testing.T) {
+	line := SummaryLine(
+		core.Summary{TotalTargets: 2, SelectedServices: []string{"ftp", "ssh"}},
+		core.DefaultOptions(),
+		core.CredentialSourceSummary{Total: 20, CustomCount: 9, TopCount: 11},
+		false,
+	)
+
+	if !strings.Contains(line, "creds=20 (custom=9, top=11)") {
+		t.Fatalf("unexpected summary line: %q", line)
 	}
 }
 

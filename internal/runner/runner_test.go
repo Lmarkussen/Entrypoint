@@ -78,3 +78,37 @@ func TestRunDoesNotCollapseInvalidAuthFailures(t *testing.T) {
 		t.Fatalf("expected invalid findings not collapsed, got %d: %+v", len(collected), collected)
 	}
 }
+
+func TestRunSummarizesRepeatedInvalidFailuresForSameUsername(t *testing.T) {
+	target := core.Target{Host: "10.10.10.12", Port: 22, Service: "ssh"}
+	cfg := Config{
+		Targets: []core.Target{target},
+		Modules: []core.Module{
+			stubModule{
+				name: "ssh",
+				findings: []core.Finding{
+					core.InvalidFinding(target, "credential", "admin", "", "login failed"),
+					core.InvalidFinding(target, "credential", "admin", "", "authentication failed"),
+					core.InvalidFinding(target, "credential", "admin", "", "invalid credentials"),
+				},
+			},
+		},
+		Options: core.Options{Threads: 1, Timeout: time.Second},
+	}
+
+	collected := make([]core.Finding, 0)
+	cfg.OnFinding = func(f core.Finding) { collected = append(collected, f) }
+
+	if err := Run(context.Background(), cfg); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	if len(collected) != 1 {
+		t.Fatalf("expected 1 summarized invalid finding, got %d: %+v", len(collected), collected)
+	}
+	if collected[0].Notes != "login failed; tried 3 passwords" {
+		t.Fatalf("unexpected summarized note: %q", collected[0].Notes)
+	}
+	if collected[0].Password != "" {
+		t.Fatalf("unexpected password leakage: %+v", collected[0])
+	}
+}

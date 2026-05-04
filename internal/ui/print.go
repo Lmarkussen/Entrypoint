@@ -33,8 +33,8 @@ type priorityEntry struct {
 	detail   string
 }
 
-func PrintSummary(w io.Writer, summary core.Summary, opts core.Options, credCount int) {
-	fmt.Fprint(w, SummaryLine(summary, opts, credCount, true))
+func PrintSummary(w io.Writer, summary core.Summary, opts core.Options, credSummary core.CredentialSourceSummary) {
+	fmt.Fprint(w, SummaryLine(summary, opts, credSummary, true))
 }
 
 func PrintFinding(w io.Writer, finding core.Finding, redactSuccessPasswords bool) {
@@ -45,11 +45,11 @@ func PrintTotals(w io.Writer, stats core.FindingStats) {
 	fmt.Fprint(w, TotalsLine(stats, true))
 }
 
-func SummaryLine(summary core.Summary, opts core.Options, credCount int, color bool) string {
+func SummaryLine(summary core.Summary, opts core.Options, credSummary core.CredentialSourceSummary, color bool) string {
 	services := append([]string(nil), summary.SelectedServices...)
 	sort.Strings(services)
-	return fmt.Sprintf("%s[*]%s targets=%d services=%s creds=%d anon=%t anon_only=%t safe=%t stop_on_valid=%t\n",
-		colorCode(color, cyan), colorCode(color, reset), summary.TotalTargets, strings.Join(services, ","), credCount, opts.IncludeAnon, opts.AnonOnly, opts.SafeMode, opts.StopOnValid)
+	return fmt.Sprintf("%s[*]%s targets=%d services=%s creds=%d%s anon=%t anon_only=%t safe=%t stop_on_valid=%t\n",
+		colorCode(color, cyan), colorCode(color, reset), summary.TotalTargets, strings.Join(services, ","), credSummary.Total, formatCredentialSourceSummary(credSummary), opts.IncludeAnon, opts.AnonOnly, opts.SafeMode, opts.StopOnValid)
 }
 
 func FindingLine(finding core.Finding, color bool, redactSuccessPasswords bool) string {
@@ -235,6 +235,19 @@ func BannerText(text string, color bool) string {
 		return text
 	}
 	return green + text + reset
+}
+
+func formatCredentialSourceSummary(summary core.CredentialSourceSummary) string {
+	switch {
+	case summary.CustomCount > 0 && summary.TopCount > 0:
+		return fmt.Sprintf(" (custom=%d, top=%d)", summary.CustomCount, summary.TopCount)
+	case summary.CustomCount > 0:
+		return " (custom file)"
+	case summary.TopCount > 0:
+		return " (top creds)"
+	default:
+		return ""
+	}
 }
 
 func statusLabel(f core.Finding) (string, string) {

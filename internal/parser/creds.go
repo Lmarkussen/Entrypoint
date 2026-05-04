@@ -3,6 +3,7 @@ package parser
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -16,7 +17,32 @@ func ParseCredentialsFile(path string) ([]core.Credential, error) {
 	}
 	defer file.Close()
 
-	scanner := bufio.NewScanner(file)
+	return ParseCredentials(file)
+}
+
+func ParseCredentials(reader io.Reader) ([]core.Credential, error) {
+	return parseCredentialsScanner(bufio.NewScanner(reader))
+}
+
+func MergeCredentials(groups ...[]core.Credential) []core.Credential {
+	seen := make(map[string]struct{})
+	merged := make([]core.Credential, 0)
+
+	for _, group := range groups {
+		for _, cred := range group {
+			key := credentialKey(cred)
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			merged = append(merged, cred)
+		}
+	}
+
+	return merged
+}
+
+func parseCredentialsScanner(scanner *bufio.Scanner) ([]core.Credential, error) {
 	creds := make([]core.Credential, 0)
 	lineNo := 0
 	for scanner.Scan() {
@@ -37,6 +63,10 @@ func ParseCredentialsFile(path string) ([]core.Credential, error) {
 		return nil, err
 	}
 	return creds, nil
+}
+
+func credentialKey(cred core.Credential) string {
+	return cred.Domain + "\x00" + cred.Username + "\x00" + cred.Password
 }
 
 func ParseCredentialLine(line string) (core.Credential, error) {

@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -44,12 +45,28 @@ func run() error {
 	}
 
 	creds := []core.Credential(nil)
+	credSummary := core.CredentialSourceSummary{}
 	if cfg.CredsFile != "" {
-		creds, err = parser.ParseCredentialsFile(cfg.CredsFile)
+		customCreds, err := parser.ParseCredentialsFile(cfg.CredsFile)
 		if err != nil {
 			return fmt.Errorf("parse creds: %w", err)
 		}
+		credSummary.CustomCount = len(customCreds)
+		creds = parser.MergeCredentials(creds, customCreds)
 	}
+	if cfg.UseTopCreds {
+		topCredsText, err := assets.LoadTopCredsText()
+		if err != nil {
+			return fmt.Errorf("load top creds: %w", err)
+		}
+		topCreds, err := parser.ParseCredentials(strings.NewReader(topCredsText))
+		if err != nil {
+			return fmt.Errorf("parse top creds: %w", err)
+		}
+		credSummary.TopCount = len(topCreds)
+		creds = parser.MergeCredentials(creds, topCreds)
+	}
+	credSummary.Total = len(creds)
 	if cfg.SNMPCommunityFile != "" {
 		cfg.Options.SNMPCommunities, err = parser.ParseNonCommentLinesFile(cfg.SNMPCommunityFile)
 		if err != nil {
@@ -88,7 +105,7 @@ func run() error {
 		writeLine(ui.BannerText(banner, color), ui.BannerText(banner, false))
 	}
 	summary := core.BuildSummary(targets, selectedModules)
-	writeLine(ui.SummaryLine(summary, cfg.Options, len(creds), color), ui.SummaryLine(summary, cfg.Options, len(creds), false))
+	writeLine(ui.SummaryLine(summary, cfg.Options, credSummary, color), ui.SummaryLine(summary, cfg.Options, credSummary, false))
 	for _, finding := range skippedTargets {
 		writeLine(
 			ui.FindingLine(finding, color, cfg.Options.RedactSuccessPasswords),
@@ -143,6 +160,7 @@ type cliConfig struct {
 	MasscanFile       string
 	CredsFile         string
 	SNMPCommunityFile string
+	UseTopCreds       bool
 	Only              map[string]struct{}
 	Skip              map[string]struct{}
 	OutputFile        string
@@ -166,6 +184,7 @@ func parseCLI() (cliConfig, error) {
 
 	flag.StringVar(&cfg.MasscanFile, "masscan", "", "Path to masscan output")
 	flag.StringVar(&cfg.CredsFile, "creds", "", "Path to credential file")
+	flag.BoolVar(&cfg.UseTopCreds, "top-creds", false, "Load built-in common/default credentials from internal/assets/top_creds.txt")
 	flag.StringVar(&cfg.SNMPCommunityFile, "snmp-communities", "", "Path to SNMP community strings file")
 	flag.StringVar(&only, "only", "", "Comma-separated modules to include")
 	flag.StringVar(&skip, "skip", "", "Comma-separated modules to skip")
@@ -222,6 +241,8 @@ func init() {
 		fmt.Fprintln(out)
 		fmt.Fprintln(out, "Examples:")
 		fmt.Fprintf(out, "  %s --masscan scan.txt\n", filepath.Base(os.Args[0]))
+		fmt.Fprintf(out, "  %s --masscan scan.txt --top-creds\n", filepath.Base(os.Args[0]))
+		fmt.Fprintf(out, "  %s --masscan scan.txt --creds creds.txt --top-creds\n", filepath.Base(os.Args[0]))
 		fmt.Fprintf(out, "  %s --masscan scan.txt --only ftp,ldap,ldaps --creds creds.txt --outfile entrypoint.log\n", filepath.Base(os.Args[0]))
 		fmt.Fprintf(out, "  %s --masscan scan.txt --creds creds.txt --log-success valid.log\n", filepath.Base(os.Args[0]))
 		fmt.Fprintf(out, "  %s --masscan scan.txt --only mssql --creds creds.txt\n", filepath.Base(os.Args[0]))

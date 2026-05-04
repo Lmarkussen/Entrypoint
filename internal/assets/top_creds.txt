@@ -1,0 +1,11 @@
+admin:admin
+admin:password
+admin:123456
+root:root
+admin:12345678
+user:user
+admin:12345
+admin:admin123
+test:test
+admin:password123
+cisco:cisco

@@ -76,6 +76,77 @@ func TestNormalizeAndCollapseFindingsDoesNotCollapseInvalidAuthFailures(t *testi
 	}
 }
 
+func TestNormalizeAndCollapseFindingsSummarizesRepeatedInvalidCredentialFailures(t *testing.T) {
+	target := Target{Host: "10.10.10.20", Port: 22, Service: "ssh"}
+	findings := []Finding{
+		InvalidFinding(target, "credential", "admin", "Linux banner\nlogin:", "login failed"),
+		InvalidFinding(target, "credential", "admin", "", "Login incorrect"),
+		InvalidFinding(target, "credential", "admin", "", "invalid credentials"),
+	}
+
+	got := NormalizeAndCollapseFindings(findings)
+	if len(got) != 1 {
+		t.Fatalf("expected 1 summarized invalid finding, got %d: %+v", len(got), got)
+	}
+	if got[0].Notes != "login failed; tried 3 passwords" {
+		t.Fatalf("unexpected summarized note: %q", got[0].Notes)
+	}
+	if got[0].Password != "" {
+		t.Fatalf("unexpected password leakage in summarized invalid finding: %+v", got[0])
+	}
+	if got[0].Evidence != "" {
+		t.Fatalf("expected summarized invalid evidence cleared, got %+v", got[0])
+	}
+}
+
+func TestNormalizeAndCollapseFindingsSuppressesRepeatedInvalidsWhenValidExistsForSameUser(t *testing.T) {
+	target := Target{Host: "10.10.10.21", Port: 22, Service: "ssh"}
+	findings := []Finding{
+		InvalidFinding(target, "credential", "admin", "", "login failed"),
+		InvalidFinding(target, "credential", "admin", "", "login failed"),
+		WithCredentialPassword(ValidFinding(target, "credential", "admin", "whoami => admin", "ssh access confirmed"), "Secret123!"),
+	}
+
+	got := NormalizeAndCollapseFindings(findings)
+	if len(got) != 1 {
+		t.Fatalf("expected only valid finding retained, got %d: %+v", len(got), got)
+	}
+	if !got[0].Success || got[0].Username != "admin" {
+		t.Fatalf("unexpected remaining finding: %+v", got[0])
+	}
+}
+
+func TestNormalizeAndCollapseFindingsKeepsDistinctFailureReasonsVisible(t *testing.T) {
+	target := Target{Host: "10.10.10.22", Port: 22, Service: "ssh"}
+	findings := []Finding{
+		InvalidFinding(target, "credential", "admin", "", "login failed"),
+		InvalidFinding(target, "credential", "admin", "", "account locked"),
+	}
+
+	got := NormalizeAndCollapseFindings(findings)
+	if len(got) != 2 {
+		t.Fatalf("expected distinct failure reasons retained, got %d: %+v", len(got), got)
+	}
+}
+
+func TestNormalizeAndCollapseFindingsDoesNotMergeDifferentDomainsOrServices(t *testing.T) {
+	sshTarget := Target{Host: "10.10.10.23", Port: 22, Service: "ssh"}
+	smbTarget := Target{Host: "10.10.10.23", Port: 445, Service: "smb"}
+	findings := []Finding{
+		InvalidFinding(sshTarget, "credential", `CORP\admin`, "", "login failed"),
+		InvalidFinding(sshTarget, "credential", `CORP\admin`, "", "login failed"),
+		InvalidFinding(sshTarget, "credential", `DEV\admin`, "", "login failed"),
+		InvalidFinding(sshTarget, "credential", `DEV\admin`, "", "login failed"),
+		InvalidFinding(smbTarget, "credential", `CORP\admin`, "", "login failed"),
+		InvalidFinding(smbTarget, "credential", `CORP\admin`, "", "login failed"),
+	}
+
+	got := NormalizeAndCollapseFindings(findings)
+	if len(got) != 3 {
+		t.Fatalf("expected 3 separate summarized findings, got %d: %+v", len(got), got)
+	}
+}
+
 func TestNormalizeAndCollapseFindingsDoesNotHideValidFindings(t *testing.T) {
 	target := Target{Host: "10.10.10.3", Port: 22, Service: "ssh"}
 	findings := []Finding{

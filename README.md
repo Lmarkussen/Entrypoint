@@ -37,6 +37,7 @@ EntryPoint is built to stay low-noise and conservative:
 - Restricts execution with `--only` or removes modules with `--skip`.
 - Runs anonymous/null checks with `--anon` and `--anon-only`.
 - Loads credentials from `--creds`.
+- Can load built-in common/default credentials with `--top-creds`.
 - Uses worker-pool concurrency with context-driven timeouts.
 - Writes colorful low-noise terminal output.
 - Supports `--no-color` for plain terminal output.
@@ -55,6 +56,7 @@ EntryPoint is built to stay low-noise and conservative:
 - Prints a concise priority triage block that ranks successful findings into `HIGH`, `MEDIUM`, and `LOW`.
 - Normalizes common socket/network errors into short operator-facing messages.
 - Collapses repeated connection-level infrastructure errors into a single line per host/service when every credential would fail the same way.
+- Summarizes repeated invalid credential failures for the same host/service/username when none of those attempts succeeded.
 
 ## Safety Model
 
@@ -85,6 +87,8 @@ Module validation rules:
 make build
 ./bin/entrypoint --masscan scans.txt
 ./bin/entrypoint --masscan scans.txt --creds creds.txt
+./bin/entrypoint --masscan scans.txt --top-creds
+./bin/entrypoint --masscan scans.txt --creds creds.txt --top-creds
 ./bin/entrypoint --masscan ldap.txt --only ldap,ldaps --creds creds.txt
 ./bin/entrypoint --masscan mssql.txt --only mssql --creds creds.txt
 ./bin/entrypoint --masscan nfs.txt --only nfs --anon-only
@@ -133,6 +137,10 @@ username:
 ```
 
 SNMP v1/v2c does not use `--creds`. EntryPoint uses built-in read-only community defaults unless `--snmp-communities` is supplied.
+
+When `--top-creds` is set, EntryPoint loads built-in common/default credentials from `internal/assets/top_creds.txt`. The file format is the same as `--creds`: one `username:password` entry per line, with empty lines and `#` comments ignored.
+
+When both `--creds` and `--top-creds` are set, EntryPoint merges the two credential sets and removes duplicates before validation. The startup line shows the total merged credential count plus whether the source was the custom file, the built-in top credentials list, or both.
 
 WinRM and WinRM over TLS use `--creds` and do not support anonymous/null validation.
 
@@ -205,6 +213,13 @@ Terminal auth markers:
 - `[A]`: anonymous or null-session checks
 - `[C]`: credential checks
 
+Startup summary examples:
+
+```text
+[*] targets=11 services=ftp,ssh,smb creds=11 (top creds) anon=true anon_only=false safe=true stop_on_valid=true
+[*] targets=11 services=ftp,ssh,smb creds=20 (custom=9, top=11) anon=true anon_only=false safe=true stop_on_valid=true
+```
+
 By default, EntryPoint shows the exact working password for successful credential findings. It never prints passwords for `INVALID`, `ERROR`, or `SKIPPED` findings.
 
 End-of-run summary:
@@ -244,6 +259,8 @@ LOW:
 The priority block includes only `VALID` findings, sorts them by host and service within each priority, truncates long proof text, and shows working passwords unless `--redact-success-passwords` is set.
 
 When EntryPoint encounters the same connection-level failure for every credential on a target, it collapses the repeated errors into a single `[I]` infrastructure error line and normalizes noisy socket text into concise messages like `timeout`, `connection refused`, or `local socket blocked / operation not permitted`.
+
+When multiple passwords fail for the same host, service, and username with equivalent auth-denied results, EntryPoint summarizes them into one `INVALID` line such as `login failed; tried 5 passwords`.
 
 For LDAPS in internal lab environments with self-signed certificates, use `--ldap-insecure-skip-verify` when strict certificate validation blocks otherwise-valid read-only checks.
 

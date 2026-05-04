@@ -25,3 +25,16 @@ func TestLoadBannerMissingReturnsEmpty(t *testing.T) {
 		t.Fatalf("expected empty banner, got %q", got)
 	}
 }
+
+func TestLoadTopCredsText(t *testing.T) {
+	got, err := LoadTopCredsText()
+	if err != nil {
+		t.Fatalf("LoadTopCredsText returned error: %v", err)
+	}
+	if got == "" {
+		t.Fatal("expected embedded top creds text")
+	}
+	if got[:11] != "admin:admin" {
+		t.Fatalf("unexpected top creds prefix: %q", got)
+	}
+}

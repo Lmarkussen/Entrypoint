@@ -1,6 +1,9 @@
 package core
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
 const (
 	AuthTypeInfrastructure = "infrastructure"
@@ -75,7 +78,7 @@ func NormalizeAndCollapseFindings(findings []Finding) []Finding {
 		out = append(out, item.finding)
 	}
 
-	return out
+	return collapseRepeatedInvalidCredentialFailures(out)
 }
 
 func NormalizeFindingError(f Finding) Finding {
@@ -167,4 +170,157 @@ func isConnectionLevelErrorFinding(f Finding) bool {
 
 func collapseKey(f Finding) string {
 	return strings.Join([]string{f.Host, f.Service, f.Notes}, "\x00")
+}
+
+func collapseRepeatedInvalidCredentialFailures(findings []Finding) []Finding {
+	if len(findings) == 0 {
+		return nil
+	}
+
+	validUsers := make(map[string]struct{})
+	for _, finding := range findings {
+		if finding.Success && finding.AuthType == "credential" {
+			validUsers[credentialIdentityKey(finding)] = struct{}{}
+		}
+	}
+
+	type invalidGroup struct {
+		firstIndex int
+		count      int
+		finding    Finding
+	}
+
+	groups := make(map[string]invalidGroup)
+	for idx, finding := range findings {
+		summaryNote, family, ok := summarizeableInvalidCredentialReason(finding)
+		if !ok {
+			continue
+		}
+		if _, ok := validUsers[credentialIdentityKey(finding)]; ok {
+			continue
+		}
+
+		key := invalidCredentialCollapseKey(finding, family)
+		group, exists := groups[key]
+		if !exists {
+			collapsed := finding
+			collapsed.Password = ""
+			collapsed.Notes = summaryNote
+			collapsed.Evidence = ""
+			groups[key] = invalidGroup{
+				firstIndex: idx,
+				count:      1,
+				finding:    collapsed,
+			}
+			continue
+		}
+		group.count++
+		groups[key] = group
+	}
+
+	out := make([]Finding, 0, len(findings))
+	emitted := make(map[string]struct{})
+	for idx, finding := range findings {
+		summaryNote, family, ok := summarizeableInvalidCredentialReason(finding)
+		if !ok {
+			out = append(out, finding)
+			continue
+		}
+		if _, ok := validUsers[credentialIdentityKey(finding)]; ok {
+			continue
+		}
+
+		key := invalidCredentialCollapseKey(finding, family)
+		group := groups[key]
+		if group.count <= 1 {
+			out = append(out, finding)
+			continue
+		}
+		if _, ok := emitted[key]; ok {
+			continue
+		}
+		if group.firstIndex != idx {
+			continue
+		}
+
+		collapsed := group.finding
+		collapsed.Notes = fmt.Sprintf("%s; tried %d passwords", summaryNote, group.count)
+		out = append(out, collapsed)
+		emitted[key] = struct{}{}
+	}
+
+	return out
+}
+
+func summarizeableInvalidCredentialReason(f Finding) (string, string, bool) {
+	if ClassifyFinding(f) != "invalid" || f.AuthType != "credential" {
+		return "", "", false
+	}
+
+	note := strings.ToLower(strings.Join(strings.Fields(f.Notes), " "))
+	if note == "" {
+		return "", "", false
+	}
+	if containsAnyFold(note,
+		"account locked",
+		"account disabled",
+		"user disabled",
+		"password expired",
+		"must change password",
+		"change your password",
+		"tls",
+		"certificate",
+		"protocol error",
+		"connection refused",
+		"timeout",
+	) {
+		return "", "", false
+	}
+
+	switch {
+	case strings.Contains(note, "login failed"), strings.Contains(note, "login incorrect"):
+		return "login failed", "auth-denied", true
+	case strings.Contains(note, "authentication failed"), strings.Contains(note, "auth failed"):
+		return "auth failed", "auth-denied", true
+	case strings.Contains(note, "invalid credentials"):
+		return "invalid credentials", "auth-denied", true
+	case strings.Contains(note, "bind failed"):
+		return "bind failed", "auth-denied", true
+	case strings.Contains(note, "no valid credential"):
+		return "no valid credential", "auth-denied", true
+	case strings.Contains(note, "access denied"):
+		return "access denied", "auth-denied", true
+	default:
+		return "", "", false
+	}
+}
+
+func invalidCredentialCollapseKey(f Finding, family string) string {
+	return strings.Join([]string{
+		f.Host,
+		fmt.Sprintf("%d", f.Port),
+		f.Service,
+		f.AuthType,
+		f.Username,
+		family,
+	}, "\x00")
+}
+
+func credentialIdentityKey(f Finding) string {
+	return strings.Join([]string{
+		f.Host,
+		fmt.Sprintf("%d", f.Port),
+		f.Service,
+		f.AuthType,
+		f.Username,
+	}, "\x00")
+}
+
+func containsAnyFold(s string, needles ...string) bool {
+	for _, needle := range needles {
+		if strings.Contains(strings.ToLower(s), strings.ToLower(needle)) {
+			return true
+		}
+	}
+	return false
 }

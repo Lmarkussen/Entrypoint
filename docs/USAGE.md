@@ -14,10 +14,22 @@ Run all supported modules discovered in masscan output:
 ./bin/entrypoint --masscan scan.txt
 ```
 
+Run built-in default credential checks:
+
+```bash
+./bin/entrypoint --masscan scan.txt --top-creds
+```
+
 Run only FTP, SSH, and Telnet with credentials:
 
 ```bash
 ./bin/entrypoint --masscan scan.txt --only ftp,ssh,telnet --creds creds.txt
+```
+
+Combine a custom credential file with the built-in top credentials list:
+
+```bash
+./bin/entrypoint --masscan scan.txt --creds creds.txt --top-creds
 ```
 
 Run SSH credential validation:
@@ -170,6 +182,7 @@ Build artifacts are written to `bin/`. The `bin/` directory is gitignored and lo
 
 - `--masscan FILE`: required input file
 - `--creds FILE`: credential file for credential-capable modules
+- `--top-creds`: load built-in common/default credentials from `internal/assets/top_creds.txt`
 - `--only ftp,ldap,ldaps,mssql,nfs,redis,rsync,snmp,ssh,telnet,smb,winrm,winrm-ssl`: restrict modules
 - `--skip ftp,ldap,ldaps,mssql,nfs,redis,rsync,snmp,ssh,telnet,smb,winrm,winrm-ssl`: skip modules
 - `--anon`: enable anonymous/null checks, default `true`
@@ -251,10 +264,13 @@ Masscan JSON:
 - `--no-color` affects only terminal output. The optional outfile stays plain text either way.
 - By default, successful credential findings include the exact working password because EntryPoint is an operator validation tool.
 - `--redact-success-passwords` hides successful passwords in terminal output, `--outfile`, `--log-success`, summary output, and the priority triage block.
+- `--top-creds` loads one `username:password` entry per line from `internal/assets/top_creds.txt`, ignores blank lines and `#` comments, and behaves exactly like `--creds`.
+- When `--creds` and `--top-creds` are used together, EntryPoint merges both credential sets, removes duplicates, and shows the merged total plus the source counts in the startup line.
 - EntryPoint always prints an end-of-run summary with grouped valid access and per-service counts.
 - EntryPoint also prints a priority triage block after the summary, showing only `VALID` findings grouped into `HIGH`, `MEDIUM`, and `LOW`.
 - Common socket/network failures are normalized into short messages like `timeout`, `connection refused`, or `local socket blocked / operation not permitted`.
 - When every credential would fail with the same connection-level problem, EntryPoint collapses those repeated errors into a single `[I]` infrastructure error line.
+- When multiple passwords fail for the same host, service, and username with equivalent auth-denied results, EntryPoint summarizes them into one `INVALID` line such as `login failed; tried 5 passwords` and drops noisy carried-over prompt/banner text from that summary line.
 - NFS supports anonymous-style export enumeration in `--anon-only` and does not use `--creds` in v1.
 - rsync supports anonymous-style module listing in `--anon-only` and does not use `--creds` in v1.
 - Redis supports no-auth checks in `--anon-only` and password-based checks with `--creds`.
