@@ -32,6 +32,12 @@ Combine a custom credential file with the built-in top credentials list:
 ./bin/entrypoint --masscan scan.txt --creds creds.txt --top-creds
 ```
 
+Show only successful findings in terminal output while keeping a full outfile:
+
+```bash
+./bin/entrypoint --masscan scan.txt --creds creds.txt --valid-only --outfile entrypoint.log
+```
+
 Run SSH credential validation:
 
 ```bash
@@ -190,6 +196,7 @@ Build artifacts are written to `bin/`. The `bin/` directory is gitignored and lo
 - `--outfile FILE`: write the same output lines to a plain-text file
 - `--log-success FILE`: write only `VALID` findings to a plain-text file
 - `--no-color`: disable ANSI colors in terminal output
+- `--valid-only`: show only `VALID` findings in terminal output
 - `--redact-success-passwords`: hide passwords for successful credential findings
 - `--ldap-insecure-skip-verify`: skip LDAPS certificate verification for self-signed lab environments
 - `--winrm-insecure`: skip WinRM HTTPS certificate verification for self-signed lab environments
@@ -259,8 +266,10 @@ Masscan JSON:
 ## Output Notes
 
 - `--outfile` writes the same lines shown in the terminal in the same order, but without ANSI color codes.
+- `--valid-only` affects stdout only. It suppresses `INVALID`, `ERROR`, and `SKIPPED` findings while still printing totals, summary, and priority output.
 - `--log-success` writes only successful `VALID` findings in plain text with no ANSI color codes.
 - `--outfile` and `--log-success` can be used together.
+- `--outfile` still contains the full unfiltered plain-text output even when `--valid-only` is set.
 - `--no-color` affects only terminal output. The optional outfile stays plain text either way.
 - By default, successful credential findings include the exact working password because EntryPoint is an operator validation tool.
 - `--redact-success-passwords` hides successful passwords in terminal output, `--outfile`, `--log-success`, summary output, and the priority triage block.

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -92,9 +93,8 @@ func run() error {
 
 	var outputErr error
 	color := !cfg.NoColor
-	writeLine := func(colorLine, plainLine string) {
-		fmt.Fprint(os.Stdout, colorLine)
-		if err := writer.WriteFull(plainLine); err != nil && outputErr == nil {
+	writeLine := func(colorLine, plainLine string, kind outputLineKind, finding *core.Finding) {
+		if err := writeOutputLine(os.Stdout, writer, colorLine, plainLine, shouldWriteToStdout(cfg.ValidOnly, kind, finding)); err != nil && outputErr == nil {
 			outputErr = err
 		}
 	}
@@ -102,14 +102,16 @@ func run() error {
 	allFindings := make([]core.Finding, 0, len(targets))
 	var findingsMu sync.Mutex
 	if banner := assets.LoadBanner(); banner != "" {
-		writeLine(ui.BannerText(banner, color), ui.BannerText(banner, false))
+		writeLine(ui.BannerText(banner, color), ui.BannerText(banner, false), outputLinePreamble, nil)
 	}
 	summary := core.BuildSummary(targets, selectedModules)
-	writeLine(ui.SummaryLine(summary, cfg.Options, credSummary, color), ui.SummaryLine(summary, cfg.Options, credSummary, false))
+	writeLine(ui.SummaryLine(summary, cfg.Options, credSummary, color), ui.SummaryLine(summary, cfg.Options, credSummary, false), outputLinePreamble, nil)
 	for _, finding := range skippedTargets {
 		writeLine(
 			ui.FindingLine(finding, color, cfg.Options.RedactSuccessPasswords),
 			ui.FindingLine(finding, false, cfg.Options.RedactSuccessPasswords),
+			outputLineFinding,
+			&finding,
 		)
 		allFindings = append(allFindings, finding)
 	}
@@ -128,6 +130,8 @@ func run() error {
 			writeLine(
 				ui.FindingLine(f, color, cfg.Options.RedactSuccessPasswords),
 				ui.FindingLine(f, false, cfg.Options.RedactSuccessPasswords),
+				outputLineFinding,
+				&f,
 			)
 			if err := writer.WriteSuccessFinding(f); err != nil && outputErr == nil {
 				outputErr = err
@@ -141,14 +145,18 @@ func run() error {
 	}
 
 	stats := core.ClassifyFindings(allFindings)
-	writeLine(ui.TotalsLine(stats, color), ui.TotalsLine(stats, false))
+	writeLine(ui.TotalsLine(stats, color), ui.TotalsLine(stats, false), outputLineAlways, nil)
 	writeLine(
 		ui.RunSummaryBlock(allFindings, color, cfg.Options.RedactSuccessPasswords),
 		ui.RunSummaryBlock(allFindings, false, cfg.Options.RedactSuccessPasswords),
+		outputLineAlways,
+		nil,
 	)
 	writeLine(
 		ui.PriorityTargetsBlock(allFindings, color, cfg.Options.RedactSuccessPasswords),
 		ui.PriorityTargetsBlock(allFindings, false, cfg.Options.RedactSuccessPasswords),
+		outputLineAlways,
+		nil,
 	)
 	if outputErr != nil {
 		return fmt.Errorf("write outfile: %w", outputErr)
@@ -166,6 +174,7 @@ type cliConfig struct {
 	OutputFile        string
 	SuccessLogFile    string
 	NoColor           bool
+	ValidOnly         bool
 	Options           core.Options
 }
 
@@ -193,6 +202,7 @@ func parseCLI() (cliConfig, error) {
 	flag.StringVar(&cfg.OutputFile, "outfile", "", "Write plain-text output to a file")
 	flag.StringVar(&cfg.SuccessLogFile, "log-success", "", "Write only VALID findings to a plain-text file")
 	flag.BoolVar(&cfg.NoColor, "no-color", false, "Disable ANSI colors in terminal output")
+	flag.BoolVar(&cfg.ValidOnly, "valid-only", false, "Show only VALID findings in terminal output")
 	flag.BoolVar(&cfg.Options.RedactSuccessPasswords, "redact-success-passwords", false, "Hide passwords in successful credential findings")
 	flag.IntVar(&threads, "threads", 50, "Worker concurrency")
 	flag.DurationVar(&timeout, "timeout", 5*time.Second, "Per-target timeout")
@@ -243,6 +253,7 @@ func init() {
 		fmt.Fprintf(out, "  %s --masscan scan.txt\n", filepath.Base(os.Args[0]))
 		fmt.Fprintf(out, "  %s --masscan scan.txt --top-creds\n", filepath.Base(os.Args[0]))
 		fmt.Fprintf(out, "  %s --masscan scan.txt --creds creds.txt --top-creds\n", filepath.Base(os.Args[0]))
+		fmt.Fprintf(out, "  %s --masscan scan.txt --creds creds.txt --valid-only --outfile entrypoint.log\n", filepath.Base(os.Args[0]))
 		fmt.Fprintf(out, "  %s --masscan scan.txt --only ftp,ldap,ldaps --creds creds.txt --outfile entrypoint.log\n", filepath.Base(os.Args[0]))
 		fmt.Fprintf(out, "  %s --masscan scan.txt --creds creds.txt --log-success valid.log\n", filepath.Base(os.Args[0]))
 		fmt.Fprintf(out, "  %s --masscan scan.txt --only mssql --creds creds.txt\n", filepath.Base(os.Args[0]))
@@ -251,4 +262,36 @@ func init() {
 		fmt.Fprintf(out, "  %s --masscan scan.txt --only ssh --creds creds.txt --no-color\n", filepath.Base(os.Args[0]))
 		fmt.Fprintf(out, "  %s --masscan scan.json --anon-only\n", filepath.Base(os.Args[0]))
 	}
+}
+
+type outputLineKind int
+
+const (
+	outputLinePreamble outputLineKind = iota
+	outputLineFinding
+	outputLineAlways
+)
+
+func shouldWriteToStdout(validOnly bool, kind outputLineKind, finding *core.Finding) bool {
+	if !validOnly {
+		return true
+	}
+
+	switch kind {
+	case outputLineAlways:
+		return true
+	case outputLineFinding:
+		return finding != nil && core.ClassifyFinding(*finding) == "valid"
+	default:
+		return false
+	}
+}
+
+func writeOutputLine(stdout io.Writer, writer *output.Manager, colorLine, plainLine string, writeStdout bool) error {
+	if writeStdout {
+		if _, err := fmt.Fprint(stdout, colorLine); err != nil {
+			return err
+		}
+	}
+	return writer.WriteFull(plainLine)
 }

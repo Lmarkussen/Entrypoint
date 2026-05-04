@@ -41,6 +41,7 @@ EntryPoint is built to stay low-noise and conservative:
 - Uses worker-pool concurrency with context-driven timeouts.
 - Writes colorful low-noise terminal output.
 - Supports `--no-color` for plain terminal output.
+- Supports `--valid-only` to show only successful findings in terminal output.
 - Can mirror the same output to a plain-text file with `--outfile`.
 - Can write only successful findings to a plain-text file with `--log-success`.
 - Shows the exact working password for successful credential findings by default.
@@ -89,6 +90,7 @@ make build
 ./bin/entrypoint --masscan scans.txt --creds creds.txt
 ./bin/entrypoint --masscan scans.txt --top-creds
 ./bin/entrypoint --masscan scans.txt --creds creds.txt --top-creds
+./bin/entrypoint --masscan scans.txt --creds creds.txt --valid-only
 ./bin/entrypoint --masscan ldap.txt --only ldap,ldaps --creds creds.txt
 ./bin/entrypoint --masscan mssql.txt --only mssql --creds creds.txt
 ./bin/entrypoint --masscan nfs.txt --only nfs --anon-only
@@ -163,6 +165,15 @@ When `--outfile entrypoint.log` is used, EntryPoint writes the same lines shown 
 - File output omits ANSI colors
 - No CSV, JSON, or extra artifact files are created
 - Parent directories are not created automatically
+
+When `--valid-only` is used, terminal output is filtered to show only:
+
+- `VALID` findings
+- the totals line
+- the end-of-run summary block
+- the priority triage block
+
+`INVALID`, `ERROR`, and `SKIPPED` findings are suppressed from stdout, but `--outfile` still receives the full unfiltered plain-text output.
 
 When `--log-success valid.log` is used, EntryPoint writes only successful `VALID` findings to that file:
 
